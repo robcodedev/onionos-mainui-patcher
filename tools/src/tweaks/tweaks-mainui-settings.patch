@@ -1,0 +1,89 @@
+--- a/src/tweaks/appstate.h
++++ b/src/tweaks/appstate.h
+@@ -65,6 +65,10 @@
+ static List _menu_button_action_mainui_menu;
+ static List _menu_button_action_ingame_menu;
+ static List _menu_user_interface;
++static List _menu_game_lists;
++static List _menu_main_menu;
++static List _menu_main_menu_items;
++static List _menu_main_context_items;
+ static List _menu_theme_overrides;
+ static List _menu_battery_percentage;
+ static List _menu_advanced;
+@@ -86,6 +90,10 @@
+     list_free(&_menu_button_action_mainui_menu);
+     list_free(&_menu_button_action_ingame_menu);
+     list_free(&_menu_user_interface);
++    list_free(&_menu_game_lists);
++    list_free(&_menu_main_menu);
++    list_free(&_menu_main_menu_items);
++    list_free(&_menu_main_context_items);
+     list_free(&_menu_theme_overrides);
+     list_free(&_menu_battery_percentage);
+     list_free(&_menu_advanced);
+--- a/src/tweaks/menus.h
++++ b/src/tweaks/menus.h
+@@ -25,6 +25,8 @@
+ #include "./reset.h"
+ #include "./tools.h"
+ #include "./values.h"
++#include "./game_lists.h"
++#include "./main_menu.h"
+ 
+ void menu_systemStartup(void *_)
+ {
+@@ -573,22 +575,6 @@
+     all_changed = true;
+     if (!_menu_user_interface._created) {
+         _menu_user_interface = list_createWithTitle(6, LIST_SMALL, "Appearance");
+-        list_addItemWithInfoNote(&_menu_user_interface,
+-                                 (ListItem){
+-                                     .label = "Show recents",
+-                                     .item_type = TOGGLE,
+-                                     .value = settings.show_recents,
+-                                     .action = action_setShowRecents},
+-                                 "Toggle the visibility of the recents tab\n"
+-                                 "in the main menu.");
+-        list_addItemWithInfoNote(&_menu_user_interface,
+-                                 (ListItem){
+-                                     .label = "Show expert mode",
+-                                     .item_type = TOGGLE,
+-                                     .value = settings.show_expert,
+-                                     .action = action_setShowExpert},
+-                                 "Toggle the visibility of the expert tab\n"
+-                                 "in the main menu.");
+         display_init(true);
+         list_addItemWithInfoNote(&_menu_user_interface,
+                                  (ListItem){
+@@ -613,6 +599,10 @@
+                      (ListItem){
+                          .label = "Icons packs...",
+                          .action = menu_icons});
++        list_addItem(&_menu_user_interface,
++                     (ListItem){.label = "Game lists...", .action = menu_gameLists});
++        list_addItem(&_menu_user_interface,
++                     (ListItem){.label = "Main menu...", .action = menu_mainMenu});
+     }
+     menu_stack[++menu_level] = &_menu_user_interface;
+     header_changed = true;
+@@ -978,7 +968,7 @@
+         list_addItem(&_menu_main,
+                      (ListItem){
+                          .label = "Appearance",
+-                         .description = "Menu visibility, theme overrides",
++                         .description = "Display, lists, main menu",
+                          .action = menu_userInterface,
+                          .icon_ptr = _get_menu_icon("tweaks_user_interface")});
+         list_addItem(&_menu_main,
+--- a/src/tweaks/tweaks.c
++++ b/src/tweaks/tweaks.c
+@@ -153,6 +153,8 @@
+                 if (menu_level == 0)
+                     quit = true;
+                 else {
++                    if (menu_stack[menu_level] == &_menu_game_lists)
++                        gamelists_on_menu_exit();
+                     menu_stack[menu_level] = NULL;
+                     menu_level--;
+                     header_changed = true;

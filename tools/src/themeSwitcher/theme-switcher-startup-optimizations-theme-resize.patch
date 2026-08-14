@@ -1,0 +1,483 @@
+--- a/src/themeSwitcher/installTheme.h
++++ b/src/themeSwitcher/installTheme.h
+@@ -1,13 +1,17 @@
+ #ifndef THEME_SWITCHER_INSTALL_THEME_H__
+ #define THEME_SWITCHER_INSTALL_THEME_H__
+ 
++#include <errno.h>
+ #include <dirent.h>
+ #include <stdlib.h>
+ #include <strings.h>
++#include <sys/types.h>
++#include <sys/wait.h>
+ #include <unistd.h>
+ 
+ #include "theme/config.h"
+ #include "utils/apply_icons.h"
++#include "utils/config.h"
+ #include "utils/file.h"
+ #include "utils/json.h"
+ #include "utils/log.h"
+@@ -22,6 +26,9 @@
+ #define SYSTEM_SKIN_DIR "/mnt/SDCARD/miyoo/app/skin"
+ #define THEMES_DIR "/mnt/SDCARD/Themes"
+ #define ACTIVE_THEME "/mnt/SDCARD/.tmp_update/config/active_theme"
++#define ROM_LIST_ROWS_CONFIG ".romListRows"
++#define THEME_LIST_RESCALE_CONFIG "gameLists/rescaleThemeListIcons"
++#define THEME_LIST_RESCALE_SCRIPT SCRIPT_DIR "/rescale_theme_list_icons.sh"
+ 
+ // Max number of records in the DB
+ #define NUMBER_OF_THEMES 500
+@@ -59,8 +66,14 @@
+             }
+ 
+             if (is_file(config_path)) {
+-                strcpy(themes_out[*count], ep->d_name);
+-                *count += 1;
++                if (*count >= NUMBER_OF_THEMES) {
++                    printf_debug("Theme limit reached (%d); ignoring remaining entries in %s\n",
++                                 NUMBER_OF_THEMES, theme_dir);
++                    break;
++                }
++
++                snprintf(themes_out[*count], STR_MAX, "%s", ep->d_name);
++                (*count)++;
+             }
+         }
+         closedir(dp);
+@@ -72,8 +85,9 @@
+ 
+ void updatePreviews()
+ {
+-    system(SCRIPT_DIR "/themes_extract_previews.sh");
+-    sync();
++    int result = system(SCRIPT_DIR "/themes_extract_previews.sh");
++    if (result != 0)
++        printf_debug("Theme preview update script failed: %d\n", result);
+ }
+ 
+ int listAllThemes(char themes_out[NUMBER_OF_THEMES][STR_MAX], const char *installed_theme, int *installed_page)
+@@ -171,6 +185,68 @@
+     }
+ }
+ 
++static int themeListRows(void)
++{
++    int rows = 6;
++
++    config_get(ROM_LIST_ROWS_CONFIG, CONFIG_INT, &rows);
++    if (rows < 6 || rows > 20)
++        rows = 6;
++
++    return rows;
++}
++
++static bool themeListRescaleEnabled(void)
++{
++    int enabled = 1;
++
++    if (!config_get(THEME_LIST_RESCALE_CONFIG, CONFIG_INT, &enabled))
++        return true;
++
++    return enabled != 0;
++}
++
++static void rescaleThemeListAssets(const char *theme_path)
++{
++    if (!themeListRescaleEnabled())
++        return;
++    if (access(THEME_LIST_RESCALE_SCRIPT, R_OK) != 0)
++        return;
++
++    int rows = themeListRows();
++    int max_height = 360 / rows;
++    char height_arg[16];
++    char rows_arg[16];
++
++    snprintf(height_arg, sizeof(height_arg), "%d", max_height);
++    snprintf(rows_arg, sizeof(rows_arg), "%d", rows);
++
++    pid_t pid = fork();
++    if (pid < 0) {
++        printf_debug("Could not start theme list resizer: %s\n",
++                     strerror(errno));
++        return;
++    }
++
++    if (pid == 0) {
++        execl("/bin/sh", "sh", THEME_LIST_RESCALE_SCRIPT, theme_path,
++              height_arg, rows_arg, (char *)NULL);
++        _exit(127);
++    }
++
++    int status = 0;
++    while (waitpid(pid, &status, 0) < 0) {
++        if (errno == EINTR)
++            continue;
++        printf_debug("Could not wait for theme list resizer: %s\n",
++                     strerror(errno));
++        return;
++    }
++
++    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
++        printf_debug("Theme list resizer failed: %d\n", status);
++}
++
+ void installTheme(char *theme_path, bool apply_icons)
+ {
+     system("/mnt/SDCARD/.tmp_update/bin/mainUiBatPerc --restore");
+@@ -208,6 +284,8 @@
+         apply_iconPack(
+             is_dir(icon_pack_path) ? icon_pack_path : ICON_PACK_DEFAULT, true);
+     }
++
++    rescaleThemeListAssets(theme_path);
+ }
+ 
+ bool checkAndSetDir(char *dest, const char *dir_path)
+--- a/src/themeSwitcher/script/themes_extract_previews.sh
++++ b/src/themeSwitcher/script/themes_extract_previews.sh
+@@ -1,10 +1,27 @@
+ #!/bin/sh
++# SPDX-License-Identifier: GPL-3.0-only
++# The script scans /mnt/SDCARD/Themes for .zip, .7z, and .rar theme archives,
++# then extracts only lightweight preview assets config.json, preview.png, and
++# icons/gba.png into /mnt/SDCARD/Themes/.previews.
++# It caches each archives size and modification time so unchanged archives
++# can be skipped without recalculating MD5. MD5 hashes are used to detect
++# already-installed themes or previews extracted from the same archive.
++# When a matching theme is already installed, the archive and any redundant
++# preview are removed.
++# The upstream sync after extraction is deliberately omitted: previews are a
++# regenerable cache and syncing here is costly on SD-backed storage.
++# Usage: themes_extract_previews.sh
++
+ theme_dir=/mnt/SDCARD/Themes
++previews_root="$theme_dir/.previews"
++archive_cache_dir="$previews_root/.archives"
+ 
+ if [ ! -d "$theme_dir" ]; then
+     exit 2
+ fi
+ 
++mkdir -p "$archive_cache_dir"
++
+ main () {
+     scan_for_archives "zip"
+     scan_for_archives "7z"
+@@ -25,6 +42,18 @@
+     archive_path="$1"
+     ext="$2"
+     archive_name="$(basename "$archive_path" ".$ext")"
++    archive_key="$archive_name.$ext"
++    archive_stat_path="$archive_cache_dir/$archive_key.stat"
++    archive_themes_path="$archive_cache_dir/$archive_key.themes"
++    current_stat=$(archive_stat "$archive_path")
++
++    if [ -n "$current_stat" ] && \
++       archive_cache_valid "$archive_path" "$archive_stat_path" \
++           "$archive_themes_path" "$current_stat" ; then
++        echo "[IGNORE] unchanged archive: $archive_name"
++        return
++    fi
++
+     archive_hash=$(md5hash "$archive_path")
+ 
+     if compare_hash "$theme_dir/$archive_name" "$archive_hash" ; then
+@@ -36,57 +65,78 @@
+             rm -rf "$theme_dir/.previews/$archive_name"
+         fi
+ 
++        rm -f "$archive_stat_path" "$archive_themes_path"
+         return
+     fi
+ 
+     if compare_hash "$theme_dir/.previews/$archive_name" "$archive_hash" ; then
+         echo "[IGNORE] found preview for: $archive_name"
++        printf '%s\n' "$archive_name" > "$archive_themes_path"
++        if [ -n "$current_stat" ]; then
++            printf '%s\n' "$current_stat" > "$archive_stat_path"
++        fi
+         return
+     fi
+ 
+     echo "[CHECK] checking archive: $archive_path"
+ 
+     file_list=`7z l -slt "$archive_path" "*/config.json" | grep '^Path = ' | sed 's/^Path = //g' | tail -n +2 | awk -v prefix="$theme_dir/.previews/" '$0=prefix $0'`
++    archive_themes_tmp="$archive_themes_path.tmp.$$"
++    : > "$archive_themes_tmp"
+ 
+-    echo "$file_list" | while read line; do
++    echo "$file_list" | while IFS= read -r line; do
+         output_dir="$(dirname "$line")"
+ 
+-        if [ "$output_dir" == "." ]; then
++        if [ "$output_dir" = "." ]; then
+             continue
+         fi
+ 
++        theme_name="$(basename "$output_dir")"
++        printf '%s\n' "$theme_name" >> "$archive_themes_tmp"
+         extract_preview "$output_dir" "$archive_path" "$archive_hash"
+     done
++
++    # Only cache when at least one theme was found. An empty result can mean a
++    # corrupt or unreadable archive rather than one genuinely containing no
++    # themes; caching that would skip the archive on every later run until its
++    # size or modification time changes.
++    if [ -s "$archive_themes_tmp" ]; then
++        mv -f "$archive_themes_tmp" "$archive_themes_path"
++        if [ -n "$current_stat" ]; then
++            printf '%s\n' "$current_stat" > "$archive_stat_path"
++        fi
++    else
++        rm -f "$archive_themes_tmp"
++    fi
+ }
+ 
+ extract_preview() {
+-    preview_dir="$1"
++    theme_preview_dir="$1"
+     archive_path="$2"
+     archive_hash="$3"
+-    theme_name="$(basename "$preview_dir")"
++    theme_name="$(basename "$theme_preview_dir")"
+ 
+     if compare_hash "$theme_dir/$theme_name" "$archive_hash" ; then
+         echo "  [IGNORE] theme already installed: $theme_name"
+ 
+-        if [ -d "$preview_dir" ]; then
+-            rm -rf "$preview_dir"
++        if [ -d "$theme_preview_dir" ]; then
++            rm -rf "$theme_preview_dir"
+         fi
+ 
+         return
+     fi
+ 
+-    if compare_hash "$preview_dir" "$archive_hash" ; then
++    if compare_hash "$theme_preview_dir" "$archive_hash" ; then
+         echo "  [IGNORE] found preview for: $theme_name"
+         return
+     fi
+ 
+     output=`7z x -aoa -bd -bb1 -o"$theme_dir/.previews" "$archive_path" "$theme_name/config.json" "$theme_name/preview.png" "$theme_name/icons/gba.png" | grep '^- .*/config.json$' | sed 's/^- //g' | awk -v prefix="$theme_dir/.previews/" '$0=prefix $0'`
+-    sync
+ 
+-    echo "$output" | while read line; do
++    echo "$output" | while IFS= read -r line; do
+         output_dir="$(dirname "$line")"
+ 
+-        if [ "$output_dir" == "." ]; then
++        if [ "$output_dir" = "." ]; then
+             continue
+         fi
+ 
+@@ -96,6 +146,37 @@
+     done
+ }
+ 
++archive_cache_valid() {
++    archive_path="$1"
++    stat_path="$2"
++    themes_path="$3"
++    current_stat="$4"
++
++    [ -f "$stat_path" ] || return 1
++    [ -f "$themes_path" ] || return 1
++    [ "$(cat "$stat_path")" = "$current_stat" ] || return 1
++
++    while IFS= read -r theme_name; do
++        [ -n "$theme_name" ] || continue
++
++        if [ -f "$previews_root/$theme_name/config.json" ] &&
++           [ -f "$previews_root/$theme_name/source" ] &&
++           [ "$(cat "$previews_root/$theme_name/source")" = "$archive_path" ]; then
++            continue
++        fi
++
++        [ -f "$theme_dir/$theme_name/config.json" ] || return 1
++    done < "$themes_path"
++
++    return 0
++}
++
++archive_stat() {
++    # BusyBox stat supports this on Onion. If unavailable, the empty result
++    # simply keeps the existing MD5-based behavior.
++    stat -c '%s:%Y' "$1" 2>/dev/null
++}
++
+ compare_hash() {
+     comp_dir="$1"
+     archive_hash="$2"
+@@ -103,7 +184,7 @@
+     if [ -f "$comp_dir/md5hash" ]; then
+         comp_hash=$(cat "$comp_dir/md5hash")
+ 
+-        if [ "$archive_hash" == "$comp_hash" ]; then
++        if [ "$archive_hash" = "$comp_hash" ]; then
+             return 0
+         fi
+     fi
+@@ -112,7 +193,7 @@
+ }
+ 
+ md5hash() {
+-    echo `md5sum "$1" | awk '{ print $1; }'`
++    md5sum "$1" | awk '{ print $1; }'
+ }
+ 
+ main
+--- a/src/themeSwitcher/themeSwitcher.c
++++ b/src/themeSwitcher/themeSwitcher.c
+@@ -19,6 +19,94 @@
+ 
+ static bool quit = false;
+ 
++#define PREVIEW_CACHE_SIZE 5
++
++typedef struct {
++	int theme_index;
++	unsigned long last_used;
++	SDL_Surface *surface;
++} PreviewCacheEntry;
++
++static unsigned long preview_cache_clock = 0;
++
++static bool resolvePreviewPath(const char *theme_name, char *path,
++		size_t path_size)
++{
++	snprintf(path, path_size, THEMES_DIR "/%s/preview.png", theme_name);
++	if (is_file(path))
++		return true;
++
++	snprintf(path, path_size, THEMES_DIR "/.previews/%s/preview.png",
++			theme_name);
++	return is_file(path);
++}
++
++static SDL_Surface *loadPreviewSurface(const char *theme_name)
++{
++	char path[STR_MAX * 2];
++	if (!resolvePreviewPath(theme_name, path, sizeof(path)))
++		return NULL;
++
++	SDL_Surface *preview = IMG_Load(path);
++	if (preview == NULL) {
++		printf_debug("Could not load theme preview: %s (%s)\n", path,
++				IMG_GetError());
++	}
++
++	/* Keep the IMG_Load software surface. Converting it with
++	 * SDL_DisplayFormat[Alpha]() flips previews on the Miyoo framebuffer. */
++	return preview;
++}
++
++static void previewCacheInit(PreviewCacheEntry cache[PREVIEW_CACHE_SIZE])
++{
++	for (int i = 0; i < PREVIEW_CACHE_SIZE; i++) {
++		cache[i].theme_index = -1;
++		cache[i].last_used = 0;
++		cache[i].surface = NULL;
++	}
++}
++
++static SDL_Surface *previewCacheGet(
++		PreviewCacheEntry cache[PREVIEW_CACHE_SIZE],
++		const char themes[NUMBER_OF_THEMES][STR_MAX], int theme_index)
++{
++	preview_cache_clock++;
++
++	for (int i = 0; i < PREVIEW_CACHE_SIZE; i++) {
++		if (cache[i].theme_index == theme_index) {
++			cache[i].last_used = preview_cache_clock;
++			return cache[i].surface;
++		}
++	}
++
++	int slot = 0;
++	for (int i = 0; i < PREVIEW_CACHE_SIZE; i++) {
++		if (cache[i].theme_index < 0) {
++			slot = i;
++			break;
++		}
++		if (cache[i].last_used < cache[slot].last_used)
++			slot = i;
++	}
++
++	if (cache[slot].surface != NULL)
++		SDL_FreeSurface(cache[slot].surface);
++
++	cache[slot].theme_index = theme_index;
++	cache[slot].last_used = preview_cache_clock;
++	cache[slot].surface = loadPreviewSurface(themes[theme_index]);
++	return cache[slot].surface;
++}
++
++static void previewCacheFree(PreviewCacheEntry cache[PREVIEW_CACHE_SIZE])
++{
++	for (int i = 0; i < PREVIEW_CACHE_SIZE; i++) {
++		if (cache[i].surface != NULL)
++			SDL_FreeSurface(cache[i].surface);
++	}
++}
++
+ void showCenteredMessage(SDL_Surface *video, SDL_Surface *screen,
+                          const char *message_str, TTF_Font *font,
+                          SDL_Color color)
+@@ -197,25 +285,10 @@
+     int themes_count = listAllThemes(themes, installed_theme, &installed_page);
+     int current_page = installed_page;
+ 
+-    showCenteredMessage(video, screen, "Loading previews...", font30, color_white);
+-
+-    char preview_path[STR_MAX * 2];
+-    SDL_Surface *previews[themes_count];
++    PreviewCacheEntry preview_cache[PREVIEW_CACHE_SIZE];
++    previewCacheInit(preview_cache);
+     SDL_Surface *noPreview = IMG_Load("res/noThemePreview.png");
+ 
+-    for (int i = 0; i < themes_count; i++) {
+-        snprintf(preview_path, STR_MAX * 2 - 1, THEMES_DIR "/%s/preview.png", themes[i]);
+-
+-        if (!is_file(preview_path))
+-            snprintf(preview_path, STR_MAX * 2 - 1, THEMES_DIR "/.previews/%s/preview.png", themes[i]);
+-
+-        previews[i] = is_file(preview_path) ? IMG_Load(preview_path) : NULL;
+-
+-        char loading_msg[STR_MAX];
+-        snprintf(loading_msg, STR_MAX - 1, "Loading previews... %d/%d", i + 1, themes_count);
+-        showCenteredMessage(video, screen, loading_msg, font30, color_white);
+-    }
+-
+     char cPages[25];
+ 
+     SDL_Event event;
+@@ -326,11 +399,13 @@
+             continue;
+ 
+         if (levelPage == 0) {
+-            if (previews[current_page] == NULL) {
++            SDL_Surface *preview = previewCacheGet(
++                preview_cache, themes, current_page);
++            if (preview == NULL) {
+                 SDL_BlitSurface(noPreview, NULL, screen, &rectThemePreview);
+             }
+             else {
+-                SDL_BlitSurface(previews[current_page], &preview_src_rect, screen, &rectThemePreview);
++                SDL_BlitSurface(preview, &preview_src_rect, screen, &rectThemePreview);
+             }
+             SDL_BlitSurface(background_page0, NULL, screen, NULL);
+ 
+@@ -407,9 +482,7 @@
+ 
+     msleep(100);
+ 
+-    for (int i = 0; i < themes_count; i++) {
+-        SDL_FreeSurface(previews[i]);
+-    }
++    previewCacheFree(preview_cache);
+     SDL_FreeSurface(noPreview);
+     SDL_FreeSurface(surfaceArrowLeft);
+     SDL_FreeSurface(surfaceArrowRight);
