@@ -1,19 +1,13 @@
 # OnionOS MainUI Binary Patcher
 
-A Python tool that adds support for favorite folders, custom rows in game lists, game meta data,
+A Python tool that adds support for favorite folders, custom rows in game lists, game metadata,
 optimized performance and other improvements to an original OnionOS `MainUI` executable.
 
-**Version 1.0**
+**Version 1.1**
 
 > [!WARNING]
 > This is an unofficial binary patcher. Keep an untouched copy of the original MainUI executables
 > and back up `/Roms/favourite.json` before installation.
-
-## Changelog
-
-### 1.0 - 2026-08-14
-
-Initial release.
 
 ## Quick installation
 
@@ -117,6 +111,10 @@ unrelated screens:
   vertically center-cropped when taller than the configured row. They are not scaled by MainUI. App
   rows in Favorites/Recent keep their stock icon behavior. The companion tweaks and themeSwitcher
   builds resize copies after row settings change and keeps backups in the theme directory.
+- **Settings icons:** themes should supply `skin/icon-theme.png` for the restored **Themes** row and
+  `skin/fixit.png` for the restored **Tweaks** row in Settings. These are the stock image paths used
+  by those two Settings entries; keeping both assets in the theme avoids falling back to unrelated
+  or missing artwork.
 - **Numbered popup backgrounds:** `bg-pop-menu-1.png` through `bg-pop-menu-6.png` should all use the
   same overall width, border placement, transparency treatment, and horizontal padding. Heights may
   differ to preserve the common row pitch. Missing larger assets are synthesized by vertically
@@ -165,8 +163,19 @@ Action-ownership map, structural/call-graph verification for important staticall
 exhaustive host properties for persisted ROM-window geometry, SQL quote-pair truncation checks,
 COUNT-cache ownership/key models, title-scroll/config arithmetic tests, ARM builder/allocator
 self-tests, patch-selection dependency tests, and a final re-parse of the completed ELF layout
-before publication. The patcher also fails closed if protected stock call maps or stack-slot
-provenance change.
+before publication. Link-sensitive protected direct-call guards use an ARM `BL` decoder that
+validates the link bit instead of accepting a same-target plain `B`; generic control-flow decoding
+still supports both branch forms where that distinction is intentionally irrelevant. Module-level
+constants named like high-signal patch scaffolding (`*_VA`, `*_WORD`, `*_WORDS`, `*_STOCK`,
+`*_STOCK_WORD`, `*_CALL`, `*_SITE`, and `*_SIG`) are AST-linted and must have a real code reference
+outside their definition; comments and string literals do not count. Module-level constants whose
+value is a mangled C++ import symbol (`_Z...`) are subject to the same fail-closed rule. The retained
+`DBCachedTextMenu::deleteRow` function signature is pinned uniquely at its protected VA, and the
+shared TextMenu keymap finder consumes its retained surrounding signature while separately requiring
+the translator instruction to be a link-sensitive ARM `BL`. A broader diagnostic audit can report
+all definition-only module-level uppercase constants, including intentional provenance/state-layout
+records, without failing normal builds. The patcher also fails closed if protected stock call maps or
+stack-slot provenance change.
 
 > [!NOTE]
 > **Maintainer headroom:** the current all-patches 354 layout leaves about 1,084 bytes in the finite
@@ -446,19 +455,22 @@ rewrites, repairs, reorders, or otherwise modifies this file. Restart MainUI to 
 
 ### File format
 
-The root object accepts four properties:
+The root object accepts five properties:
 
 ```text
-menu     object controlling visible main-menu sections
-context  object or array controlling SELECT-menu entries and their order
-custom   object defining custom1, custom2 and custom3
-hotkey   boolean enabling the L1+R1+L2+R2 temporary reveal; default true
+menu      object controlling visible main-menu sections
+settings  object or array controlling Settings entries and their order
+context   object or array controlling SELECT-menu entries and their order
+custom    object defining custom1, custom2 and custom3
+hotkey    boolean enabling the L1+R1+L2+R2 temporary reveal; default true
 ```
 
 For `menu` and object-form `context`, only the JSON literal `true` enables an entry. `false`, a
-missing key, a string, a number, or null is treated as false. The one exception is root `hotkey`: it
-defaults to true when omitted. When present, only the literal `true` keeps the chord enabled;
-`false`, a string, a number, or null disables it.
+missing key, a string, a number, or null is treated as false. Object-form `settings` is intentionally
+different: it starts from the current Settings defaults, so an omitted Settings key remains enabled,
+literal `false` hides that row, and literal `true` keeps it enabled. The one exception at root level is
+`hotkey`: it defaults to true when omitted. When present, only the literal `true` keeps the chord
+enabled; `false`, a string, a number, or null disables it.
 
 Unknown keys and unknown custom properties are ignored. The bounded parser also tolerates `//`, `/*
 ... */`, and `#` comments, trailing commas, and ordinary JSON escapes. The maximum file size is 128
@@ -477,12 +489,25 @@ A complete editable example is:
     "settings": false,
     "expert": false
   },
+  "settings": {
+    "shutdown": true,
+    "brightness": true,
+    "wifi": true,
+    "display": true,
+    "themes": true,
+    "tweaks": true,
+    "language": true,
+    "sound": true,
+    "sleep": true,
+    "about": true
+  },
   "context": {
     "refresh": true,
     "games": true,
     "settings": true,
     "tweaks": true,
     "themes": false,
+    "shutdown": false,
     "search": false,
     "custom1": false,
     "custom2": true,
@@ -507,6 +532,8 @@ If the file is missing, unreadable, oversized, or malformed, the compatibility d
 
 ```text
 Main menu:    Favorite, Games, Apps, Settings
+Settings:     Shutdown, Brightness, WIFI, Display, Themes, Tweaks, Change language,
+              Menu sound, Sleep timer, About device (subject to the availability gates below)
 SELECT menu:  Refresh all roms
               Search  (only when /mnt/SDCARD/App/Search/launch.sh exists)
               Tweaks  (only when /mnt/SDCARD/App/Tweaks/launch.sh exists)
@@ -615,13 +642,51 @@ future OnionOS release could enable or disable the Expert section through `main-
 For current OnionOS releases, keep supporting both binary variants and the existing Tweaks marker
 behavior.
 
+### Settings entries
+
+Recognized `settings` keys are:
+
+```text
+shutdown  brightness  wifi  display  themes  tweaks  language  sound  sleep  about
+```
+
+Object form is a default-on override/reorder map. Recognized keys mentioned in the object keep their
+object order; omitted Settings rows remain enabled and are appended afterward in the normal Settings
+order. Literal `false` hides a mentioned row and literal `true` keeps it enabled. This means, for
+example, that `{"themes": false, "tweaks": false}` hides only Themes and Tweaks while leaving the
+other normal Settings rows intact. A duplicate key keeps its first position and updates that row's
+final enabled state. As with `context`, a string array is also accepted as an explicit allowlist when
+only selected enabled rows and their order are wanted:
+
+```json
+{
+  "settings": ["display", "themes", "tweaks", "brightness", "wifi", "sleep", "about"]
+}
+```
+
+When the root object has no `settings` property, the patch reproduces the current patched Settings
+order: **Shutdown**, **Brightness**, **WIFI**, **Display**, **Themes**, **Tweaks**, **Change language**,
+**Menu sound**, **Sleep timer**, and **About device**. An empty object therefore produces those same
+defaults. Array form remains an explicit allowlist, but Settings is never allowed to resolve to zero
+usable rows: an empty array, an all-false object, or a selection containing only unavailable rows
+falls back to the safe current defaults instead of constructing a zero-row Settings menu.
+
+Visibility remains bounded by the capabilities MainUI actually has. `"wifi": true` does not create
+a Wi-Fi row in a MainUI binary whose stock Settings builder does not support that row. `language` is
+shown only when MainUI reports more than one available language. `themes` and `tweaks` are shown
+only when `/mnt/SDCARD/App/ThemeSwitcher/launch.sh` and `/mnt/SDCARD/App/Tweaks/launch.sh` respectively
+exist. The other recognized rows reuse their stock Settings targets and handlers.
+
+The `sleep` Settings key controls MainUI's existing **Sleep timer** row; it is not an immediate
+standby command.
+
 ### SELECT-menu entries
 
 Recognized `context` keys are:
 
 ```text
 refresh  search  recents  favorites  games  apps  settings  expert  themes  tweaks
-custom1  custom2  custom3
+shutdown  custom1  custom2  custom3
 ```
 
 Object key order is the popup order. Recognized false entries stay registered but hidden. Duplicate
@@ -641,7 +706,12 @@ in array order:
 ```
 
 `recent` and the Favorite spellings `favorite`, `favourite`, `favorites`, `favourites`, and `favs`
-are accepted as aliases. At most thirteen recognized context entries exist.
+are accepted as aliases. At most fourteen recognized context entries exist.
+
+`shutdown` opens MainUI's stock Shutdown confirmation dialog directly. There is no immediate
+Sleep/standby context action: Onion's hardware POWER-button suspend lifecycle is owned outside
+MainUI, so the patch does not attempt to reproduce it. The separate `settings.sleep` key still
+controls MainUI's ordinary **Sleep timer** Settings row.
 
 When root `hotkey` is true or omitted, pressing L1+R1+L2+R2 together while the main menu is active
 reveals every registered false context entry, immediately opens the popup, and keeps those entries
@@ -709,6 +779,8 @@ authoritative.
 keeps its stock label/icon and launches `/mnt/SDCARD/App/ThemeSwitcher/launch.sh`. The adjacent
 hidden Fixes row is shown as **Tweaks** and launches `/mnt/SDCARD/App/Tweaks/launch.sh`. Each row is
 omitted when its external launcher is unavailable.
+
+Theme authors should provide `skin/icon-theme.png` for Themes and `skin/fixit.png` for Tweaks.
 
 The rows keep their original stock Settings destination IDs and are redirected at the real Settings
 dispatch handlers. The AppAction result is propagated back through the Settings input path so the
@@ -2324,11 +2396,19 @@ Destructive membership operations retain the patcher's one-time safety copy of `
 
 ### Shared keyboard corrections
 
-Folder naming and rename use MainUI's existing on-screen keyboard. The wrapper keeps the 24-byte SDL
-1.2 event union, preserves the live font register across the text bridge, latches the committing A
-press until physical release, suppresses queued repeats, and keeps long input scrolled to its cursor
-end. Because these hooks are shared with Wi-Fi text entry, Wi-Fi credential flows remain part of the
-physical-device regression matrix.
+Folder naming and rename use MainUI's existing on-screen keyboard. Create and Rename keep the stock
+keyboard Window identity, constructor arguments, shared active-window updater, and teardown contract.
+MainUI's `ImeWindow::draw` reads that stock Window identity (translation ID 153, `Search`) immediately
+before drawing the visible keyboard header. The Favorite core therefore records only the exact ImeWindow
+pointer it just constructed plus the already-resolved Create/Rename label. Only the translation call in
+that exact `ImeWindow::draw` header path is wrapped: while the live window pointer matches the recorded
+Favorite keyboard it returns **Create folder** or **Rename folder**; every other ImeWindow tail-calls
+MainUI's stock translator. The custom action destructor clears the record on confirm/cancel, and no shared
+update/teardown path dereferences the keyboard Action. Search and Wi-Fi keyboards retain their stock
+headers. The wrapper keeps the 24-byte SDL 1.2 event union, preserves the live font register across the
+text bridge, latches the committing A press until physical release, suppresses queued repeats, and keeps
+long input scrolled to its cursor end. Because the input/text hooks are shared with Wi-Fi text entry, Wi-Fi
+credential flows remain part of the physical-device regression matrix.
 
 ### Focused host validation
 
@@ -2568,8 +2648,16 @@ repeated visit, the same ten calls together cost about 0.5 ms after the library 
 initialized. Skipping the redundant browse-time call removes that deferred one-time initialization
 from system entry rather than merely moving it elsewhere.
 
+The bypass intentionally treats that browse-time `GetGameName` call as a pure name lookup. Static
+MainUI analysis cannot prove that an alternate `libgamename.so` does not lazily initialize private
+state later consumed by some unrelated component. Hardware testing with the supported Onion path
+confirmed normal Arcade browsing after the bypass; users of a materially different replacement
+library can exclude this selector if they require its browse-time side effects.
+
 This patch has no helper payload and no mutable state. On the 354 reference it changes one
-instruction condition field only; output size and ELF segment sizes are otherwise unchanged.
+instruction condition field only; output size and ELF segment sizes are otherwise unchanged. A
+separate final post-emission check also requires the unconditional bypass to be present whenever the
+selector is enabled, preventing a future silent no-op regression.
 
 ---
 
@@ -3872,7 +3960,7 @@ used through:           0x16D984
 used:                   1,892 bytes
 remaining:              1,084 bytes
 appended R-X payload: 131,920 bytes
-bounded added BSS:     61,676 bytes
+bounded added BSS:     61,744 bytes
 ```
 
 An 80-byte in-gap allocation remains reserved at the former font-selector location so unrelated
@@ -4140,8 +4228,23 @@ hardware-specific behavior.
   deliberately does not substitute a raw filesystem count.
 - The sidecar is global, matching the stock global Favorite file. It does not create a separate
   folder tree for Guest mode.
-- When creating a new favorite folder, the gamelist is not "scrolled" to the view where the new 
-  folder is shown.
+- Returning to **Settings** after launching the restored **Themes** or **Tweaks** Settings row can
+  leave the Settings page title blank. This has only been observed for this Themes/Tweaks-from-
+  Settings return path; no equivalent problem has been observed for other sections, so a future fix
+  should remain narrowly scoped rather than generalized. Current analysis indicates that the live
+  Settings window can be persisted with string-title identity / numeric title `-1` and later restored
+  through MainUI's numeric-title path. A proposed fix is to restore the live Settings window's stock
+  numeric title ID `15` immediately before the Themes/Tweaks external AppAction launch, so the normal
+  state save records a valid Settings title. This is documented only and is not applied in this
+  release.
+- After creating a new Favorite folder, the rebuilt Favorite list currently keeps approximately the
+  previous numeric selection instead of selecting the newly created folder. The desired future
+  behavior is to return from the keyboard with the new folder selected and visible, without entering
+  it. A narrow proposed implementation is to reuse the existing per-menu `restore_row` /
+  `restore_pending` fields: after a successful sidecar commit, arm the target row for the newly
+  appended folder, then let the existing deferred Favorite refresh rebuild the menu and apply
+  `set_menu_selected()`/viewport normalization on the next normal list cycle. This should require no
+  new persistent BSS state. The change is documented only and is not applied in this release.
 - The OnionOS global search app emulates a console, so it is possible to use the built in console 
   search within global search, which might look strange. It works, but results are duplicated. 
 - Ordinary ROM-folder setup keeps the established full-window request while the redundant stock top
@@ -4206,25 +4309,16 @@ hardware-specific behavior.
 
 These upstream reports helped identify or document the behaviors targeted by the optional patches:
 
-- [OnionUI/Onion#245 - auto-scrolling for long selected ROM
-  titles](https://github.com/OnionUI/Onion/issues/245)
-- [OnionUI/Onion discussion #975 - R1/L1 letter
-  navigation](https://github.com/OnionUI/Onion/discussions/975)
-- [OnionUI/Onion issue #42 - theme-configurable bold list
-  fonts](https://github.com/OnionUI/Onion/issues/42)
-- [MainUI-issues #7 - large artwork-bearing library eventually crashes
-  MainUI](https://github.com/OnionUI/MainUI-issues/issues/7)
-- [OnionUI/Onion issue #667 - three-item game-list popup
-  background](https://github.com/OnionUI/Onion/issues/667)
-- [MainUI-issues #12 - shutdown dialog ignores theme
-  configuration](https://github.com/OnionUI/MainUI-issues/issues/12)
-- [#26 - Game info screen does not show game
-  title](https://github.com/OnionUI/MainUI-issues/issues/26)
-- [#24 - Apostrophe in a PS directory breaks
-  loading](https://github.com/OnionUI/MainUI-issues/issues/24)
+- [OnionUI/Onion#245 - auto-scrolling for long selected ROM titles](https://github.com/OnionUI/Onion/issues/245)
+- [OnionUI/Onion discussion #975 - R1/L1 letter navigation](https://github.com/OnionUI/Onion/discussions/975)
+- [OnionUI/Onion issue #42 - theme-configurable bold list fonts](https://github.com/OnionUI/Onion/issues/42)
+- [MainUI-issues #7 - large artwork-bearing library eventually crashes MainUI](https://github.com/OnionUI/MainUI-issues/issues/7)
+- [OnionUI/Onion issue #667 - three-item game-list popup background](https://github.com/OnionUI/Onion/issues/667)
+- [MainUI-issues #12 - shutdown dialog ignores theme configuration](https://github.com/OnionUI/MainUI-issues/issues/12)
+- [#26 - Game info screen does not show game title](https://github.com/OnionUI/MainUI-issues/issues/26)
+- [#24 - Apostrophe in a PS directory breaks loading](https://github.com/OnionUI/MainUI-issues/issues/24)
 - [#21 - Loading issue on a game directory](https://github.com/OnionUI/MainUI-issues/issues/21)
-- [#14 - Right in Favorites initially shows only the
-  platform](https://github.com/OnionUI/MainUI-issues/issues/14)
+- [#14 - Right in Favorites initially shows only the platform](https://github.com/OnionUI/MainUI-issues/issues/14)
 - [#11 - Game-list sorting is case-sensitive](https://github.com/OnionUI/MainUI-issues/issues/11)
 - [#1 - Sleep Timer only goes right](https://github.com/OnionUI/MainUI-issues/issues/1)
 
@@ -4286,6 +4380,50 @@ Get-ChildItem "D:\Roms" -Filter *.png -Recurse | ForEach-Object {
 
 These commands preserve image proportions and never enlarge smaller images.
 
+## Changelog
+
+### 1.1 - 2026-08-21
+
+- **Configurable Settings menu via `main-menu.json`.** Control the visibility and order of `shutdown`, 
+  `brightness`, `wifi`, `display`, `themes`, `tweaks`, `language`, `sound`, `sleep`, and `about`. Object 
+  form is default-on: omitted rows keep their normal state, `false` hides a row, and `true` keeps it 
+  subject to the usual capability and launcher checks.
+
+- **Updated Tweaks app.** The companion Tweaks build now exposes the new MainUI configurable Settings 
+  menu support.
+
+- **New optional `shutdown` action for the main SELECT/context menu.** It opens MainUI's stock Shutdown 
+  confirmation dialog.
+
+- **Improved Favorite-folder keyboard titles.** Folder creation and rename now show *Create folder* 
+  and *Rename folder* instead of the generic *Search* keyboard title.
+
+- **Fixed `use-rom-database-display-names`.** The selector previously had no runtime effect, so 
+  short-name/Arcade systems could still perform the expensive browse-time `GetGameName` lookup even 
+  when the final display title was already stored in `cache6.db`. Browsing now treats the database 
+  `disp` value as authoritative, avoiding the cold Arcade-name initialization without changing the 
+  stored titles.
+
+- **Theme guidance for the restored Settings entries.** Themes should provide `skin/icon-theme.png` for 
+  **Themes** and `skin/fixit.png` for **Tweaks**.
+
+- **Patcher safety and validation improvements.** Direct-call guards now distinguish ARM `BL` calls from
+  plain `B` branches instead of validating only the destination address. The patcher also verifies that
+  `use-rom-database-display-names` actually emits its expected branch change, and AST-lints module-level
+  patch scaffolding so abandoned `*_VA`, `*_WORD`, `*_WORDS`, `*_STOCK`, `*_STOCK_WORD`, `*_CALL`,
+  `*_SITE`, and `*_SIG` constants cannot silently remain after an implementation block is removed.
+  Definition-only module constants containing mangled C++ import symbols (`_Z...`) fail the same lint.
+  The retained `DBCachedTextMenu::deleteRow` and shared TextMenu keymap signatures are now wired 
+  into their live ownership checks rather than existing as documentation-only scaffolding. A broader
+  report-only AST audit also exposes every definition-only module-level uppercase constant for
+  maintainer review without treating provenance/state-layout records as build failures. Existing
+  fail-closed stock-instruction checks, ownership guards, ELF/segment validation, embedded-core checks, 
+  and post-emission safety audits remain in place.
+
+### 1.0 - 2026-08-14
+
+Initial release.
+
 ## Build reference
 
 Default and explicit `--patch-all` builds are byte-identical. Focused selector combinations and
@@ -4295,14 +4433,14 @@ reference hashes remain accepted inputs.
 Validated output,
 
 ```text
-MainUI-283-clean & MainUI-283-expert, bytes: 1,639,680
-sha256sum: 5cef4de3835ae18513fa8d5272484a74c21ec7ea1096b9b7c743d40789cb845c
+MainUI-283-clean & MainUI-283-expert, bytes: 1,647,328
+sha256sum: 91baf954d72cb8eceacd95acf461b686100d5292acf524adcbf90bbf106f7b20
 
-MainUI-285-clean & MainUI-285-expert, bytes: 1,639,680
-sha256sum: d1c01ba63704e617b473d82355f7ee5aab2b1abc1a9861a917d1d0d4c872f470
+MainUI-285-clean & MainUI-285-expert, bytes: 1,647,328
+sha256sum: f77776955c47f4104945aed42deb7a2356a2bbcd7eb6464d1ca9bb57fac21fb6
 
-MainUI-354-clean & MainUI-354-expert, bytes: 1,639,680
-sha256sum: 7c0a2b5449722ba0294f9293874f964b0f56e158c8c0af666dfb0cc9e8b520a5
+MainUI-354-clean & MainUI-354-expert, bytes: 1,647,328
+sha256sum: bb3c08deef0810595b217285db5a8aed47380fdb6f22ec6b0a71376fb59716d0
 ```
 > [!NOTE]
 > The patcher normalizes the clean/expert difference, so both variants produce identical output.

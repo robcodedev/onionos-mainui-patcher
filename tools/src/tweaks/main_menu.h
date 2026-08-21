@@ -5,8 +5,8 @@
 //
 // Tweaks controls for the menu and SELECT-menu visibility handled by the
 // optional patched MainUI main-menu.json reader. Existing custom actions,
-// unknown root fields and recognized item order are kept. The root hotkey
-// setting is editable separately from the context-menu entries.
+// unknown/unsupported root fields and recognized item order are kept. The
+// root hotkey setting is editable separately from the context-menu entries.
 
 #include <ctype.h>
 #include <errno.h>
@@ -26,7 +26,7 @@
 #define MAINMENU_CONFIG_MAX_SIZE (128 * 1024)
 
 #define MAINMENU_MENU_COUNT 6
-#define MAINMENU_CONTEXT_COUNT 13
+#define MAINMENU_CONTEXT_COUNT 14
 #define MAINMENU_CONTEXT_LIST_COUNT (MAINMENU_CONTEXT_COUNT + 1)
 
 static const char *mainmenu_menu_keys[MAINMENU_MENU_COUNT] = {
@@ -36,14 +36,14 @@ static const char *mainmenu_menu_labels[MAINMENU_MENU_COUNT] = {
     "Recents", "Favorites", "Games", "Apps", "Settings", "Expert"};
 
 static const char *mainmenu_context_keys[MAINMENU_CONTEXT_COUNT] = {
-    "refresh", "search", "recents", "favorites", "games", "apps",
-    "settings", "expert", "themes", "tweaks", "custom1", "custom2",
-    "custom3"};
+    "shutdown", "refresh", "search", "recents", "favorites", "games",
+    "apps", "settings", "expert", "themes", "tweaks", "custom1",
+    "custom2", "custom3"};
 
 static const char *mainmenu_context_labels[MAINMENU_CONTEXT_COUNT] = {
-    "Refresh all roms", "Search", "Recents", "Favorites", "Games", "Apps",
-    "Settings", "Expert", "Themes", "Tweaks", "Custom 1", "Custom 2",
-    "Custom 3"};
+    "Shutdown", "Refresh all roms", "Search", "Recents", "Favorites", "Games",
+    "Apps", "Settings", "Expert", "Themes", "Tweaks", "Custom 1",
+    "Custom 2", "Custom 3"};
 
 static void mainmenu_set_default_menu(bool states[MAINMENU_MENU_COUNT])
 {
@@ -57,9 +57,9 @@ static void mainmenu_set_default_menu(bool states[MAINMENU_MENU_COUNT])
 static void mainmenu_set_default_context(bool states[MAINMENU_CONTEXT_COUNT])
 {
     memset(states, 0, sizeof(bool) * MAINMENU_CONTEXT_COUNT);
-    states[0] = true; // Refresh all roms
-    states[1] = true; // Search
-    states[9] = true; // Tweaks
+    states[1] = true;  // Refresh all roms
+    states[2] = true;  // Search
+    states[10] = true; // Tweaks
 }
 
 static int mainmenu_menu_key_index(const char *key)
@@ -84,13 +84,13 @@ static int mainmenu_context_key_index(const char *key)
     if (key == NULL)
         return -1;
     if (strcmp(key, "recents") == 0 || strcmp(key, "recent") == 0)
-        return 2;
+        return 3;
     if (strcmp(key, "favorites") == 0 || strcmp(key, "favorite") == 0 ||
         strcmp(key, "favourite") == 0 || strcmp(key, "favourites") == 0 ||
         strcmp(key, "favs") == 0)
-        return 3;
+        return 4;
     for (int i = 0; i < MAINMENU_CONTEXT_COUNT; i++) {
-        if (i == 2 || i == 3)
+        if (i == 3 || i == 4)
             continue;
         if (strcmp(key, mainmenu_context_keys[i]) == 0)
             return i;
