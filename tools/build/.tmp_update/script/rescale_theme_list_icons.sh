@@ -69,6 +69,26 @@ if [ ! -x "$PNGRESIZE" ]; then
     exit 3
 fi
 
+is_wide_game_icon()
+{
+    png=$1
+    [ -f "$png" ] || return 1
+
+    # PNG IHDR width/height are big-endian 32-bit values at offsets 16/20.
+    # Treat only an obviously deliberate horizontal layout asset as a spacer:
+    # at least 120 px wide AND at least 3:1. This avoids misclassifying modest
+    # rectangular game icons merely because width happens to exceed height.
+    set -- $(dd if="$png" bs=1 skip=16 count=8 2>/dev/null | od -An -tu1)
+    [ "$#" -eq 8 ] || return 1
+
+    w=$(( $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 ))
+    h=$(( $5 * 16777216 + $6 * 65536 + $7 * 256 + $8 ))
+
+    [ "$h" -gt 0 ] &&
+    [ "$w" -ge 120 ] &&
+    [ "$w" -ge $((h * 3)) ]
+}
+
 png_width()
 {
     # PNG IHDR width is the four-byte big-endian value at offset 16.
@@ -152,7 +172,27 @@ resize_row_background()
 
 status=0
 resize_icon "skin/icon-folder.png" || status=1
-resize_icon "skin/icon-game.png" || status=1
+
+game_icon="$theme_path/skin/icon-game.png"
+game_icon_backup="$game_icon.bak"
+# If a backup exists it is the authoritative unmodified theme asset. This also
+# repairs cards where an older resizer already shrank a wide spacer before the
+# spacer rule existed.
+if [ -f "$game_icon_backup" ]; then
+    game_icon_probe="$game_icon_backup"
+else
+    game_icon_probe="$game_icon"
+fi
+
+if is_wide_game_icon "$game_icon_probe"; then
+    # Deliberate layout/spacer icon: preserve its complete horizontal geometry.
+    if [ -f "$game_icon_backup" ]; then
+        cp -p "$game_icon_backup" "$game_icon" || status=1
+    fi
+else
+    resize_icon "skin/icon-game.png" || status=1
+fi
+
 resize_icon "skin/ic-favorite-mark.png" || status=1
 resize_row_background || status=1
 

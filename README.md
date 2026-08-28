@@ -3,7 +3,7 @@
 A Python tool that adds support for favorite folders, custom rows in game lists, game metadata,
 optimized performance and other improvements to an original OnionOS `MainUI` executable.
 
-**Version 1.1**
+**Version 1.2**
 
 > [!WARNING]
 > This is an unofficial binary patcher. Keep an untouched copy of the original MainUI executables
@@ -88,46 +88,101 @@ The default build improves these main areas:
 
 - ROM-list layout, navigation, sorting, title scrolling, and thumbnail handling
 - Favorite folders, ordering, persistence, and return behavior
-- Recent-list loading, retention, App exclusion, and single-entry removal
-- ROM database, XML, Arcade-name, shell-operation, and background-status performance
+- Recent-list loading, retention, App exclusion, single-entry removal, and consistent list/detail previews
+- ROM database, XML, Arcade-name, shell-operation, rebuild-path safety, and background-status performance
+- Wi-Fi connect-command quoting for SSIDs/passphrases containing spaces or shell metacharacters
 - Game-detail titles, metadata, navigation, and layout
-- Main-menu layout and shortcuts, theme/dialog behavior, and selected settings fixes
+- Main-menu layout and shortcuts, Onion Search Favorite-state handling, theme/dialog behavior, and selected settings fixes
 
 ## Theme-author compatibility guide
 
-The patched MainUI remains compatible with themes that provide only the normal stock assets.
-Optional assets and settings let a theme take advantage of the added layouts without changing
-unrelated screens:
+The patched MainUI remains compatible with themes that provide only the normal stock assets. The
+optional settings and assets below are scoped to the **active theme**. With
+`skip-inactive-theme-configs` enabled, MainUI still enumerates the top-level `/mnt/SDCARD/Themes`
+directory during startup but reads and parses `config.json` only for the selected external theme.
+Patch-added theme state is staged by exact theme path, reset before active-theme resolution, and
+populated only from the exact selected theme. A setting in one installed theme cannot become the
+live setting for another theme.
 
+A theme can combine the two game-list settings in its top-level `config.json`:
+
+```json
+{
+  "gamelist": {
+    "bold": false,
+    "iconLeftMargin": 12
+  }
+}
+```
+
+- **Game-list icon left margin:** `gamelist.iconLeftMargin` is optional and belongs to
+  `patch-rom-list-rows`. It is an absolute theme-author control for the aligned folder/game icon
+  layout and is valid at every supported row count, including the stock six-row layout. `0` is a
+  valid value and permits artwork to begin at the list edge; values above 300 clamp to 300. Missing,
+  negative, or invalid values retain the established row-count-aware geometry. One value controls
+  both folder and game rows; MainUI keeps their existing visual alignment internally rather than
+  exposing separate margins. The title start and usable title width move with the icon layout.
+- **Game-list font weight:** `gamelist.bold` belongs to `patch-theme-list-font-bold`. Missing,
+  invalid, or `true` retains the stock bold game-list style; `false` uses a private normal-style
+  game-list font. ROM, Favorites, Recent, and contextual Search rows are affected. Language,
+  Systems, Apps, Settings, titles, Game Details, keyboard text, and other independently loaded fonts
+  are not restyled.
 - **Game-list selection backgrounds:** for a configured row count `N` from 6 through 20, ROM,
   Favorites, and Recent lists first try `skin/bg-list-s_N.png` and otherwise use the ordinary
-  `skin/bg-list-s.png`. Numbered variants should retain the stock asset's width, horizontal
-  alignment, transparency, and left/right padding. Their vertical artwork should match the effective
-  row height `floor(360 / N)`. This substitution is scoped to game lists; other menus continue to
-  use `bg-list-s.png`. The companion tweaks and themeSwitcher builds create `skin/bg-list-s_N.png` 
-  after row settings change, unless the file already exists.
-- **Game-list icons:** ordinary ROM, Favorite, and Recent game rows all use the active theme's
-  `skin/icon-game.png`. Folder/item icons, `icon-game.png`, and `ic-favorite-mark.png` are
-  vertically center-cropped when taller than the configured row. They are not scaled by MainUI. App
-  rows in Favorites/Recent keep their stock icon behavior. The companion tweaks and themeSwitcher
-  builds resize copies after row settings change and keeps backups in the theme directory.
+  `skin/bg-list-s.png`. Numbered variants should retain the stock asset width, horizontal alignment,
+  and transparency treatment. Their effective row height is `floor(360 / N)`.
+- **Popup selection background:** context-menu selection rows optionally use
+  `skin/bg-list-popup-s.png`. If it is missing or cannot be decoded, the already loaded normal
+  selection surface remains in use. Make this asset the same width as the theme's
+  `bg-pop-menu-1.png` through `bg-pop-menu-6.png`; a 60 px height matching the normal popup row is
+  the safest choice. This asset is the highlighted-row strip, while the numbered
+  `bg-pop-menu-N.png` files remain the popup container backgrounds.
+- **Wide game-icon spacer layouts:** a deliberate `skin/icon-game.png` spacer is recognized only
+  when it is at least **120 px wide** and at least **3 times as wide as it is tall**. Its complete
+  horizontal width is preserved and only vertical excess is center-cropped. The preserved width is
+  used for title geometry, and Favorite markers automatically use the far-right placement for these
+  layouts so a fixed marker lane does not collide with the spacer. Normal icons retain ordinary
+  row-count-aware behavior. Theme-resize tooling should use the same `width >= 120 && width >=
+  3*height` rule and leave qualifying spacer assets unchanged.
+- **Numbered popup backgrounds:** `bg-pop-menu-1.png` through `bg-pop-menu-6.png` should use a common
+  width, border placement, transparency treatment, and horizontal padding. Heights may differ to
+  preserve the common popup row pitch. Missing larger assets can still be synthesized by the popup
+  background compatibility patch from the highest readable smaller numbered asset.
 - **Settings icons:** themes should supply `skin/icon-theme.png` for the restored **Themes** row and
-  `skin/fixit.png` for the restored **Tweaks** row in Settings. These are the stock image paths used
-  by those two Settings entries; keeping both assets in the theme avoids falling back to unrelated
-  or missing artwork.
-- **Numbered popup backgrounds:** `bg-pop-menu-1.png` through `bg-pop-menu-6.png` should all use the
-  same overall width, border placement, transparency treatment, and horizontal padding. Heights may
-  differ to preserve the common row pitch. Missing larger assets are synthesized by vertically
-  tiling and cropping the highest readable smaller numbered background.
-- **Fonts and labels:** `gamelist.bold` controls only game-list row fonts. Top-level main-menu
-  labels may wrap to two centered lines inside a 136-pixel safe width, so button artwork should
-  leave that central text area unobstructed. A language value consisting of one space can still hide
-  a top-level main-menu label; the same value no longer creates a blank built-in SELECT-menu action
-  because context labels use embedded fallbacks.
-- **Dialogs and details:** when the relevant selectors are enabled, generic action labels use the
-  theme's hint font/color, and the improved Game Details layout uses the documented 360-pixel right
-  column. Test unusually large fonts, borders, icons, and preview art on-device because MainUI crops
-  rather than dynamically redesigning those assets.
+  `skin/fixit.png` for the restored **Tweaks** row in Settings.
+
+### Safe decorative margins and borders
+
+The 640x480 MainUI screen reserves a 360 px game-list band between the title and tips regions:
+
+```text
+y =   0..59    title/top region
+y =  60..419   game-list viewport
+y = 420..479   tips/bottom region
+```
+
+The areas above `y=60` and from `y=420` downward are therefore outside game-list row drawing, though
+the title/tips UI itself can of course use them. Inside the 360 px list viewport there is **no
+row-count-independent top or bottom gutter**: the row height changes with `N`, and selection/icon
+artwork may use the full effective row height. Decorative borders that must never intersect a list
+row should stay outside that 360 px band. Borders inside `bg-list-s_N.png` should be designed within
+that row's own `floor(360/N)` height rather than relying on a large unused vertical margin.
+
+Horizontally, do not assume the stock 20 px left/right inset is always free. Dense row counts already
+reduce normal outer padding to a 15 px minimum, and `gamelist.iconLeftMargin` can deliberately move
+the icon/title layout farther left, including all the way to zero. If a theme needs a permanent left
+border of `B` pixels, choose `iconLeftMargin` large enough to reserve `B` plus the desired visual gap.
+On the right, keep important border artwork conservative: normal dense-row geometry can approach the
+15 px outer inset, Favorite markers can occupy the far-right lane, and wide-spacer layouts can use
+more horizontal space than stock. Test border-heavy themes at the smallest and largest row counts
+they intend to support.
+
+Top-level main-menu labels may wrap to two centered lines inside a 136-pixel safe width. A language
+value consisting of one space can still hide a top-level main-menu label; the same value no longer
+creates a blank built-in SELECT-menu action because context labels use embedded fallbacks. Dialog
+action labels use the theme hint style when that selector is enabled, and the improved Game Details
+layout uses the documented 360-pixel right column. Test unusually large fonts, borders, icons, and
+preview art on-device because MainUI crops rather than dynamically redesigning theme assets.
 
 ## Requirements
 
@@ -175,7 +230,14 @@ shared TextMenu keymap finder consumes its retained surrounding signature while 
 the translator instruction to be a link-sensitive ARM `BL`. A broader diagnostic audit can report
 all definition-only module-level uppercase constants, including intentional provenance/state-layout
 records, without failing normal builds. The patcher also fails closed if protected stock call maps or
-stack-slot provenance change.
+stack-slot provenance change. The forward and backward ROM asynchronous window loaders are validated
+at their resolved bodies as well as at their calling `BL` sites: the patcher pins their prologue and
+callee-saved `r4` contract, direction-specific selected/window arithmetic, and shared worker-construction
+call shape before any row/page helper is allowed to use them.
+The recursive ROM rebuild hardening similarly pins its scan functions, allocation/cleanup ownership,
+filename capacities, recursive argument forwarding, and each modified formatter's stock provenance.
+The connect-time Wi-Fi quoting patch pins both connect-function entries plus every original formatter,
+executor, command-buffer handoff, format string, and input-local source before redirecting them.
 
 > [!NOTE]
 > **Maintainer headroom:** the current all-patches 354 layout leaves about 1,084 bytes in the finite
@@ -186,20 +248,21 @@ stack-slot provenance change.
 
 ## Available patches
 
-51 registered selectors, all enabled by default. The complete all-patches build is the normal
+57 registered selectors, all enabled by default. The complete all-patches build is the normal
 integrated configuration; partial `--include` / `--exclude` builds are supported primarily for
 diagnosis and experimentation.
 
 
 | Patch name | Purpose | Runtime configuration |
 |---|---|---|
-| `patch-rom-list-rows` | Configurable row count and geometry, row-specific `bg-list-s_N.png` theme selection background with stock fallback, Favorite/Recent `icon-game.png` parity with centered row-height clipping, row-scaled horizontal geometry with outer padding clamped at 15 px and post-icon spacing clamped at 5 px, first-frame preview geometry correction, fixed preview-safe Favorite-marker lane by default with a presence-only legacy dynamic-position switch, whole-renderer Favorite-title clipping on the actual row destination surface in fixed mode, custom-row first-presentation readiness barrier, total-aware restored-window normalization with descending-range hardening, restored-window/deep-position warm-up, corrected L2/R2 destination loading, bounded repaint recovery, and one completion-generation-gated stock preview refresh at the pre-geometry cover check | `.romListRows` |
+| `patch-rom-list-rows` | Configurable row count and geometry, row-specific `bg-list-s_N.png` theme selection background with stock fallback, active-theme `gamelist.iconLeftMargin` (0..300) for the aligned folder/game icon layout, Favorite/Recent `icon-game.png` parity with centered row-height clipping, wide-spacer compatibility using the >=120 px and >=3:1 rule with automatic far-right Favorite markers, row-scaled horizontal geometry with outer padding clamped at 15 px and post-icon spacing clamped at 5 px, first-frame preview geometry correction, fixed preview-safe Favorite-marker lane by default with a presence-only legacy dynamic-position switch for normal icons, whole-renderer tagged game-list title clipping to one row-count-aware right edge on the actual destination surface, with Favorite-marker narrowing in fixed mode, custom-row first-presentation readiness barrier, total-aware restored-window normalization with descending-range hardening, restored-window/deep-position warm-up, corrected L2/R2 destination loading, bounded one-row edge-wrap destination readiness, bounded repaint recovery, and one completion-generation-gated stock preview refresh at the pre-geometry cover check | `.romListRows`, theme `config.json` |
 | `patch-rom-list-font-size` | Optional font-size override for ROM, Favorite, Recent, and contextual-Search result lists; established pointer tags remain authoritative and exact `DBCachedTextMenu` is only a post-miss fallback | `.romListFontSize` |
 | `fix-contextual-search` | Contextual Search fixes: confirming-A release filter, first-result start in the normal integrated row-patch build, `Console: term` title spacing at both stock builders, deterministic case-configured A–Z order, contrast-aware bright-yellow/purple substring highlighting with stable selected geometry, white keyboard key caps, and marker-gated direct return to the source list after launching a game from Search | `.romListCaseSensitiveSort` |
 | `patch-rom-list-title-scroll` | Delayed seamless loop-marquee scrolling for overflowing selected titles, 60 px loop gap, guarded NEON preview compositing, and stable-preview synthetic-frame housekeeping skip; 33 ms repaint target with ~20 Hz effective cadence measured on MainUI-354 hardware | `.romListTitleScroll` |
 | `patch-rom-list-letter-jump` | R1/L1 next/previous visible-initial navigation; resilient one-window-at-a-time ROM scanning resumes on completion/idle or another shoulder press, preserves unrelated actions, and cancels if selection changes; short-name Arcade rebuilds bind resolved display labels to SQLite `disp` | Refresh Roms once for Arcade |
 | `patch-rom-list-end-jump` | Hold UP then press L2 for first item; hold DOWN then press R2 for final item, including sidecar-backed Favorite menus | None |
 | `patch-theme-list-font-bold` | Read `gamelist.bold` for game-list row fonts | Theme `config.json` |
+| `skip-inactive-theme-configs` | Keep the stock `/Themes` enumeration loop but skip every non-selected theme before child-path construction, file access, JSON parsing, or the theme callback; unresolved/default selections fail open to the complete stock scan | None |
 | `fix-game-list-rapid-navigation` | Clear stale acceleration history; accelerated Up/Down follows the effective visible row count when the row patch is enabled | None |
 | `limit-rom-list-thumbnail-cache` | Cap decoded game-preview caching at 64 surfaces | None |
 | `skip-rom-preview-surface-copy` | Remove redundant self-format surface clones from preview and theme loading | None |
@@ -210,8 +273,10 @@ diagnosis and experimentation.
 | `optimize-direct-shell-operations` | Replace trivial startup/launch shell-outs with direct file/sysfs operations and remove the redundant pre-`fopen` `__xstat` | None |
 | `skip-rom-artwork-directory-scan` | Skip the root `Imgs` directory before recursion in both the rebuild pre-count (Scanning total) and the real `cache6.db` scan; ordinary/deeper game subdirectories keep the stock path | None |
 | `throttle-background-status-polling` | Poll battery and Wi-Fi immediately then every five seconds; skip `/proc` when Wi-Fi is disabled and use one process walk when enabled | None |
+| `fix-wifi-network-shell-quoting` | Shell-quote connect-time `wpa_cli` SSID/PSK values so spaces and shell metacharacters remain literal; scanning is unchanged and oversized commands fail without execution | None |
 | `optimize-burst-cpu-governor` | Save/restore the active governor around startup, ROM-cache rebuilds, and MainUI launch preparation/teardown using nested bursts and a recovery marker | None |
 | `optimize-rom-database-rebuild` | Bulk-load derived `cache6.db` rebuilds with disabled durability, memory temp storage, an approximately 8 MiB page cache, and deferred browse-index construction when the index selector is also active | None |
+| `fix-rom-rebuild-path-safety` | Harden recursive scan-based `cache6.db` rebuild path construction with a 4096-byte shared path buffer, bounded formatting, explicit filename-scratch termination, and allocation-failure gates; overlong entries are skipped rather than truncated | None |
 | `optimize-miyoogamelist-file-checks` | Bounded transient filename set for ordinary root-level XML import checks, with stock `access()` fallback | None |
 | `suppress-miyoogamelist-entry-timing` | Remove two loop-local `gettimeofday` calls while retaining whole-import timing | None |
 | `allow-missing-miyoogamelist-image-tags` | Import games whose `<image>` tag is missing or empty; missing/null-text tags explicitly clear the reused image-path string so an entry cannot inherit the previous game's image | None |
@@ -221,11 +286,13 @@ diagnosis and experimentation.
 | `restore-favourite-folder-after-game-exit` | Restore the launched row inside its nested Favorite folder after game exit; requires `add-favourite-folders-json` | None |
 | `add-recent-remove-from-list` | Insert translated ID 52 immediately below Start; keep the stock game erase-key path and remove App/non-game records by bounded launch/label identity through MainUI's iterator erase and writer | None |
 | `optimize-recent-list-loading` | Use the label already saved in `recentlist.json` and bypass both cold `GetGameName` calls during Recent-row construction | None |
+| `fix-recent-preview-paths` | Normalize Search-origin Recent games to the source emulator + real ROM for duplicate comparison/insertion, filter exact `launch="setstate"` pseudo-records before retained slots are consumed, and make Recent list preview, initial RIGHT-open Details, and Up/Down detail refresh use one explicit-PNG-or-source-image-directory thumbnail rule | None |
+| `fix-search-favourite-status` | Normalize Onion Search's synthetic `launch.sh:/real/rom` identity across Favorite star checks, Add/Remove popup choice, removal, and new Favorite storage; new records keep the stock schema but use the source emulator launcher + real ROM, while legacy Search-shaped rows remain readable | None |
 | `use-rom-database-display-names` | Treat the `disp` column in an existing `cache6.db` as authoritative and never call `GetGameName` while browsing, even when the stored title looks like an Arcade short name | None |
 | `extend-recent-list-to-50` | Inspect at most the first 200 parsed `recentlist.json` records, retain the first 50 unique Recent identities in top-of-file order, and ignore later duplicates during reconstruction | None |
 | `exclude-apps-from-recent-list` | Prevent live AppAction launches from entering Recent and skip stale type-3 AppAction rows while reconstructing `recentlist.json` | None |
 | `add-parent-folder-to-rom-lists` | Add a leading `..` row to every non-root ordinary SQLite-backed ROM directory; root browsing and root pagination counts keep the simple indexed query forms, while search lists remain unchanged | None |
-| `suppress-rom-database-debug-logging` | Optional cleanup: remove thirteen hot-path `printf` calls (including the per-item Favourite window-update refresh log) and five timing-only `gettimeofday` calls; normal Onion launch already discards stdout | None |
+| `suppress-rom-database-debug-logging` | Hot-path development logging (ROM database, Recent, preview, Favourite refresh, menu teardown): suppress sixteen unconditional development/debug output calls and remove five timing-only `gettimeofday` calls | None |
 | `skip-rom-database-refresh-sync` | Skip global `sync()` after ROM-cache deletion and after both rebuild paths | None |
 | `cache-rom-list-counts` | Cache repeated positive ROM-list COUNT results in RAM; cache hits bypass SQLite cleanup while real queries use `sqlite3_reset()` to release read locks without destroying the prepared statement | None |
 | `reuse-onion-arcade-name-lookup` | Read Onion's Arcade-name file once into a packed process-local hash cache, bypass per-ROM `std::map` lookup, and reuse the first language/pinyin result | OnionOS 4.2.2 or newer; automatically includes `use-rom-database-display-names` |
@@ -236,9 +303,10 @@ diagnosis and experimentation.
 | `show-gamelist-metadata-in-game-details` | Show bounded genre, 0-10 rating, and a page-scrollable description using the detail system-name font family/size as its base; synthetic Onion Search rows do not traverse back to source-console XML | Immediate-directory `gamelist.xml` only |
 | `skip-folders-in-game-detail-navigation` | Skip folders in detail Up/Down; use game-only list/detail counters; suppress the normal N/N counter on Favorite and ordinary folder rows | None |
 | `fix-sleep-timer-left-right` | Make Sleep Timer Left cycle opposite to Right | None |
-| `patch-main-menu-layout` | Read-only `main-menu.json` visibility, launcher-aware Refresh/Search/Tweaks fallback, restored external Themes/Tweaks rows directly below Display in Settings, ordered SELECT shortcuts, built-in context-label fallback, custom launchers, startup restoration of a hidden Recent list, top-level-only two-line labels, and a session-only four-shoulder reveal | `main-menu.json`, `.showRecents`, `.showExpert`, language ID 407 |
+| `patch-main-menu-layout` | Read-only `main-menu.json` visibility, launcher-aware Refresh/Search/Tweaks fallback, restored external Themes/Tweaks rows directly below Display in Settings, ordered SELECT shortcuts, built-in context-label fallback, custom launchers, transient-window state filtering around external handoffs, startup restoration of a hidden Recent list, top-level-only two-line labels, and a session-only four-shoulder reveal | `main-menu.json`, `.showRecents`, `.showExpert`, language ID 407 |
 | `fix-invalid-main-menu-state` | Use Game instead of the `wrongbeef` fallback | None |
 | `fix-game-list-context-menu-background` | Use the correct three-row background for the ordinary three-item game-list context menu | None |
+| `patch-context-menu-selection-background` | Use optional active-theme `skin/bg-list-popup-s.png` for PopupWindow selection rows, with the existing list-selection surface as fallback | Theme asset |
 | `fix-dialog-action-theme-style` | Use the theme hint font/color for generic and confirmation-dialog action labels, including Shutdown | None |
 | `fix-case-sensitive-game-list-sorting` | Use a marker file to switch between case-insensitive and stock case-sensitive sorting | `.romListCaseSensitiveSort` |
 | `improve-game-details` | Improve the complete detail layout, trim outer ASCII spaces only while drawing the system label, align the counter/Favorite row and previews, and widen metadata | None |
@@ -785,14 +853,25 @@ Theme authors should provide `skin/icon-theme.png` for Themes and `skin/fixit.pn
 The rows keep their original stock Settings destination IDs and are redirected at the real Settings
 dispatch handlers. The AppAction result is propagated back through the Settings input path so the
 external application starts immediately when A is pressed. This avoids the deferred-launch behavior
-of earlier experimental implementations. The stock `/mnt/SDCARD/Themes` startup scan is **not**
-removed or deferred; it remains part of normal theme initialization.
+of earlier experimental implementations. This main-menu selector does not itself alter the stock
+`/mnt/SDCARD/Themes` startup scan. The separate `skip-inactive-theme-configs` selector can retain
+that scan loop while filtering out inactive themes before their config files are touched.
 
 The restored rows are inserted immediately after **Display**, so the visible order is Display,
 Themes, Tweaks, followed by the remaining stock Settings rows. Their original hidden construction
-sites remain untouched. There is currently no cross-restart return marker for these Settings
-launchers, so after an external application exits/restarts MainUI the normal MainUI startup/return
-behavior applies.
+sites remain untouched. There is no separate cross-restart return marker for these Settings
+launchers. When MainUI serializes window state before the external handoff, only a Settings record
+with stock type `7` and string-title value `-1` is normalized to stock numeric Settings title ID
+`15`. Other window types and titles are serialized unchanged. This preserves the **Settings** header
+when MainUI is restored after Themes or Tweaks exits without introducing a persistent marker.
+
+The same selector also hardens MainUI's generic `/tmp/state.json` boundary for transient windows.
+Popup and confirmation windows use negative type values, but MainUI's generic restore path cannot
+reconstruct those records as the original transient class. A negative-type live window is therefore
+skipped when state is serialized, and any stale negative-type record already present in the state
+file is ignored during restore. Normal non-negative section windows are unchanged. This prevents a
+transient SELECT/context popup from being reconstructed after an external application handoff as
+an empty ordinary page with the popup's title.
 
 A custom entry is usable only when both `label` and `launch` are non-empty strings. Labels are
 copied literally and are not translated. The bounded limits are 127 UTF-8 bytes for a label and 511
@@ -962,14 +1041,83 @@ rows        outer row padding    post-icon gap
 17..20      15 px                 5 px
 ```
 
-The icon destination, text start, and available text width are changed together. Rows without icons
-use the same outer margin on both sides; both generic-icon and `icon-game` rows use the dynamic
-post-icon gap. The selected-title marquee consumes this exact rectangle, so the padding change is
-reflected in scrolling bounds rather than drawing into the reserved margin.
+The icon destination and text start remain row-kind-aware, but every tagged game-list title uses one
+absolute right edge derived from the actual destination SDL surface width minus the outer row padding.
+Folders, normal games, wide-spacer games, and rows without an icon therefore share the same right
+boundary even though their left X positions differ. At 14 through 20 rows on the normal 640-pixel
+destination surface, for example, that boundary is `x=625` and leaves exactly 15 pixels on the right.
+
+MainUI's final stock title blit uses a null source rectangle and does not treat the caller's destination
+rectangle width as a hard clip. The row patch therefore temporarily intersects the actual destination
+surface clip with this shared right edge around the complete stock title renderer, then restores the
+original clip immediately afterward. The selected-title marquee uses the same right edge; an active
+Favorite-marker boundary may narrow it further. Static and scrolling titles therefore reserve the same
+row-count-aware right padding instead of ending at different pixel boundaries.
+
+The dense-row game-title-width hook also fails closed when MainUI temporarily has no current
+`TextItem`: it uses the normal row-height icon slot without dereferencing an item or surface. This
+keeps the custom-row path safe during transient/empty draw states as well as ordinary populated rows.
 
 The established active/previous game-list identity guards keep unrelated `TextMenu` screens stock.
-This also covers a source game list restored after contextual Search, even while it is still the
-remembered previous game-list object.
+The row-patch state records the currently tagged game-list pointer at `state+0x40` and the previously
+tagged game-list pointer at `state+0x44`. When a different tagged list becomes current, the old active
+pointer can move to the previous slot; this primarily protects transition lifecycles such as contextual
+Search, where the source ROM list may temporarily remain the remembered previous object before it is
+promoted back to active.
+
+The static shared-edge clip and both selected-title marquee stages use the same active-or-previous
+identity rule. The row-title marker that arms scrolling and the low-level scrolling blit each accept a
+TextMenu matching either `state+0x40` or `state+0x44`. This matters when returning from contextual
+Search: hardware testing confirmed that MainUI can expose the source console list again while it is
+still the remembered previous object. The draw path only recognizes that object; it does not promote
+`state+0x44` back to active or otherwise mutate the Search lifecycle while rendering.
+
+> [!NOTE]
+> **Maintainer review note:** the shared-edge clip reads the tagged row's destination `SDL_Surface`
+> width for every accepted row without first testing that surface pointer for NULL. This moves the first
+> `r5` dereference earlier than older baselines, where a comparable dereference was reached mainly through
+> later Favorite-marker handling. Stock MainUI's row renderer already stores and ultimately blits to that
+> same destination surface without a survivable NULL path, so a NULL destination was already fatal; the
+> patch changes where such an invalid state would fail, not whether it can be rendered safely. No NULL
+> destination has been observed on tested hardware.
+
+### Theme-configurable game-list icon left margin
+
+The same `patch-rom-list-rows` selector reads an optional numeric `iconLeftMargin` member from the
+active theme's top-level `gamelist` object:
+
+```json
+{
+  "gamelist": {
+    "iconLeftMargin": 12
+  }
+}
+```
+
+Rules:
+
+```text
+missing setting          -> established row-count-aware geometry
+negative/non-number      -> established row-count-aware geometry
+0..300                   -> explicit absolute theme-author margin
+above 300                -> clamp to 300
+```
+
+The setting is valid even with six rows. One value controls the aligned folder/game icon layout;
+MainUI preserves the renderer-specific compensation needed for those two stock paths to remain
+visually aligned. The title start and available title width are adjusted with the icon layout, so a
+theme author does not need a second text-margin setting.
+
+This is particularly useful for themes with decorative vertical borders. A value of zero is valid
+and allows the layout to reach the left edge; a border-heavy theme can instead reserve its desired
+left-side artwork width explicitly. When the setting is absent, the established default geometry is
+used unchanged.
+
+Patch-added theme settings are isolated by exact theme path. During MainUI's installed-theme scan,
+`gamelist.bold` and `gamelist.iconLeftMargin` are staged only in per-theme records and cannot update
+live renderer state. At active-theme initialization, live patched theme state is reset to defaults
+and populated only from an exact selected-theme path match. A value in another installed theme
+therefore cannot spill into the active theme.
 
 ### Initial ROM-list readiness
 
@@ -990,8 +1138,46 @@ index before calling the stock item accessor. If the visible window is still inc
 and bounded completion repaints. The draw vtable remains stock; there is no paint gate and no path
 that intentionally leaves the list body blank behind the preview image.
 
-Normal Up/Down, L1/R1, L2/R2, Search, Favorites, Recent, and the loading-progress display keep their
-existing paths. Only the ordinary ROM-list initial load vtable slot is wrapped.
+Normal non-wrap Up/Down, L1/R1, L2/R2, Search, Favorites, Recent, and the loading-progress display
+keep their existing paths. The ordinary ROM-list initial load vtable slot is wrapped, and exact
+one-row edge wraps use the separate bounded destination-readiness path described below.
+
+### One-row edge-wrap readiness
+
+Stock one-row ROM navigation changes the selected index and starts the asynchronous forward/backward
+window loader before publishing the new viewport `start`/`end` fields. On an opposite-edge wrap this
+can briefly draw `LOADING` rows even though the worker fills them immediately afterward, especially
+in very large database-backed systems or database layouts whose opposite edge is not resident.
+
+The row patch therefore intercepts only the verified one-row loader calls for exact wraps:
+
+```text
+Down from final row -> first row: check destination 0 .. rows-1
+Up from first row   -> final row: check destination max(0,total-rows) .. total-1
+```
+
+The stock destination worker is started first. The wrapper then derives the destination directly
+from the new selected index, published total, and effective row count; it deliberately does not use
+the still-stale viewport `start`/`end` fields. Readiness is checked through MainUI's stock item
+accessor, with null items and exact `LOADING` labels treated as pending. The wrapper yields in 1 ms
+intervals for at most 60 ms and returns immediately when the complete destination window is ready.
+An empty or unpublished total fails open to the original loader path.
+
+> [!NOTE]
+> **Maintainer review note:** one non-blocking hardening opportunity remains documented for this
+> edge-wrap helper. The Down-wrap gate currently rejects `total == 0`, while the published total is
+> treated as a signed field elsewhere in stock MainUI. For every normal `total >= 1` value the existing
+> unsigned destination clamp is equivalent to the intended signed result, but a hypothetical negative
+> total could bypass that clamp and make the gate inspect `0 .. rows-1`. Static analysis does not
+> establish that this stock field can never become negative; no negative value has been observed on
+> tested hardware. A future cleanup can reject `total <= 0` or use an explicitly signed clamp.
+
+Every non-wrap one-row Up/Down movement remains on the original loader path with no added wait. The
+60 ms bound is only a presentation barrier; it does not change the SQL query, database index policy,
+worker implementation, or completion-repaint machinery. In addition to pinning the one-row `BL`
+destinations, the patcher now verifies the resolved forward loader at `0x241A0` and backward loader at
+`0x242DC` directly, including their stock callee-saved `r4` contract and direction-specific worker
+setup. A changed loader body therefore fails closed before output is published.
 
 Shoulder buttons move by the configured number of rows in game lists. Shared non-game menus keep
 their stock behavior.
@@ -1001,19 +1187,38 @@ height, selection geometry, and shoulder-button behavior regardless of the ROM-l
 
 ### Theme icon note
 
-Oversized row icons are vertically center-cropped to the active row height; they are not scaled. The
-clipping covers the normal folder/item icon, `skin/icon-game.png`, and `skin/ic-favorite-mark.png`.
-Favorite and Recent game rows receive the same active-theme `skin/icon-game.png` surface as ordinary
-SQLite-backed ROM rows, so all three list types use the same centered clipping renderer.
-Favorite/Recent App rows remain unchanged. The game icon's stock square source rectangle also
-follows the configured row height instead of remaining fixed.
+Oversized row icons are vertically center-cropped to the active row height; they are not scaled by
+MainUI. The clipping covers the normal folder/item icon, `skin/icon-game.png`, and
+`skin/ic-favorite-mark.png`. Favorite and Recent game rows receive the same active-theme
+`skin/icon-game.png` surface as ordinary SQLite-backed ROM rows, so all three list types share the
+same theme-author geometry.
 
-Using the updated tweaks binary from this project will try to auto resize the icons used for rows,
-so theme images match the row height better. Backups of all altered files are stored in the theme
-directory.
+A normal `icon-game.png` keeps the established row-count-aware icon slot. A deliberate horizontal
+layout/spacer asset is recognized only when **both** of these conditions are true:
 
-When changing theme you might want to re-visit the Tweaks settings so the icons can be resized
-again.
+```text
+width >= 120 px
+width >= 3 * height
+```
+
+Qualifying spacer assets keep their complete horizontal width; only vertical excess is
+center-cropped when necessary. That width participates in the game-title start and available-text
+width calculations. Favorite rows automatically move `ic-favorite-mark.png` to the far-right marker
+placement for a wide spacer, and Favorite-title clipping uses the same rule, avoiding the fixed
+marker lane that would otherwise sit inside the spacer layout. The marquee treats a preview boundary
+as an obstruction only when that boundary is physically to the right of the selected title start.
+
+Baseline regression safety for this stock-six path is automated rather than dependent on manually
+installing a wide-spacer theme for every release. The patcher pins the generated title-scroll helper
+so it must read the icon surface height before reusing the surface-pointer register for width, and it
+host-sweeps the centered square-crop arithmetic for all supported row counts, including the 61-70 px
+stock-six edge range. New spacer/layout behavior still requires device testing when its semantics are
+changed; unchanged baselines do not require repeating a special wide-spacer asset test solely to catch
+these two known failure classes.
+
+Companion theme-resize tooling should apply the same spacer test and leave qualifying
+`icon-game.png` assets unchanged. Ordinary icons continue through the normal row-count resize path.
+Backups of altered theme files remain recommended.
 
 ### First-presentation preview geometry and Favorite-marker lane
 
@@ -1026,10 +1231,12 @@ only **after** the child draw. The row patch mirrors MainUI's exact existing pre
 decision immediately before the child draw and leaves the original post-draw assignment unchanged.
 This keeps the first visible frame in sync with later frames.
 
-Favorite-marker placement then has two runtime modes. By default the marker uses the same
-preview-safe lane regardless of whether the selected game currently has a thumbnail. The marker
-formula remains stock except that its x-origin term is fixed at `250`, so the marker's right edge is
-constant and its left edge automatically follows the decoded `ic-favorite-mark.png` width.
+Favorite-marker placement then has two runtime modes for normal game icons. By default the marker
+uses the same preview-safe lane regardless of whether the selected game currently has a thumbnail.
+The marker formula remains stock except that its x-origin term is fixed at `250`, so the marker's
+right edge is constant and its left edge automatically follows the decoded `ic-favorite-mark.png`
+width. A qualifying wide `icon-game.png` spacer automatically overrides that fixed lane and uses the
+far-right placement instead; Favorite-title clipping follows the same wide-spacer decision.
 
 To restore the original dynamic preview/no-preview marker position, create this presence-only file:
 
@@ -1041,19 +1248,21 @@ The file contents are ignored. Restart MainUI after adding or removing it. With 
 Favorite markers follow the live child-list x-origin exactly as before: preview rows use the
 preview-safe position and no-preview rows use the far-right full-width position.
 
-In fixed mode, Favorite game rows are clipped around the **complete stock row-title renderer**.
-MainUI's renderer can emit up to three text blits for one title, so the patch does not alter the
-caller's rectangle width. Instead it saves the clip rectangle from the exact destination
-`SDL_Surface*` already passed to the row renderer, intersects only the right edge with a boundary
-6 pixels before the actual marker left edge, runs the complete stock title renderer, and restores
-the exact original clip immediately afterward. `SDL_GetClipRect` and `SDL_SetClipRect` are resolved
-once at runtime through MainUI's existing `dlsym` import. If either symbol is unavailable, the call
-fails open to stock rendering.
+All tagged game-list rows are clipped around the **complete stock row-title renderer** at the shared
+row-count-aware right edge described above. MainUI's renderer can emit up to three text blits for one
+title, so the patch does not try to patch each blit or enlarge the caller's rectangle. Instead it saves
+the clip rectangle from the exact destination `SDL_Surface*` already passed to the row renderer,
+intersects only its right edge with `surface_width - outer_padding`, runs the complete stock title
+renderer, and restores the exact original clip immediately afterward. In fixed Favorite-marker mode,
+that common bound can be narrowed further to 6 pixels before the actual marker left edge.
+`SDL_GetClipRect` and `SDL_SetClipRect` are resolved once at runtime through MainUI's existing `dlsym`
+import. If either symbol is unavailable, the call fails open to stock rendering.
 
 The two temporary `SDL_Rect` objects remain four 16-bit fields; no `SDL_Surface` internals, glyph
-surfaces, source/destination blit rectangles, or title strings are rewritten. The bound uses the
-marker surface's decoded width, so it does not assume a particular Favorite PNG size or row count.
-Dynamic compatibility mode leaves the ordinary stock title renderer unclipped.
+surfaces, source/destination blit rectangles, or title strings are rewritten. The Favorite bound uses
+the marker surface's decoded width, so it does not assume a particular Favorite PNG size or row count.
+Dynamic marker compatibility mode changes marker placement as documented above, but the base
+row-count-aware title right edge remains in force for tagged game lists.
 
 ### L2/R2 page-loading correction
 
@@ -1360,6 +1569,91 @@ change:
 
 The exact renderer call target and its six argument-setup instructions are fail-closed guards.
 
+## Consistent Favorite identity for Onion Search results
+
+Patch name:
+
+```text
+fix-search-favourite-status
+```
+
+Onion's external Search app is presented to MainUI as a synthetic console. Its generated database stores
+a result path as a combined source launcher plus real ROM path:
+
+```text
+/mnt/SDCARD/Emu/SYSTEM/launch.sh:/mnt/SDCARD/Roms/SYSTEM/game.ext
+```
+
+Stock MainUI uses that synthetic representation at some boundaries but later splits it when a real
+`GameAction` is constructed. That creates several inconsistent identities for the same game: a live
+Search row can show a Favorite star but rebuild without it, the SELECT popup can offer **Add Favorite**
+for an already-favorited game, Remove can target the wrong encoded path, and a Search-created Favorite
+can retain the Search launcher instead of the source emulator identity.
+
+This selector gives those Search-only boundaries one canonical identity. For an encoded Search result,
+the real ROM suffix is used for membership checks and removal, and a newly stored Favorite keeps the
+stock four-field schema while writing the source emulator launcher plus the real ROM path. No `imgpath`
+field is added to `favourite.json`. Ordinary ROM rows remain unchanged. Legacy Search-shaped Favorite
+records are still accepted: exact encoded membership is tried as a compatibility fallback, and when the
+folder-aware Favorite core constructs such a row it resolves the source emulator and real ROM in memory
+without rewriting the old record solely for migration.
+
+With the folder-aware Favorite core enabled, Favorite `GameAction`s also receive a usable detail-image
+argument when the stock Favorite record has no `imgpath`: the source emulator's normal image directory
+is used. This keeps list preview and RIGHT-open/Up-Down Game Details on the same source artwork without
+adding a non-stock field to the Favorite file.
+
+## Skip inactive theme configuration parsing at startup
+
+Patch name:
+
+```text
+skip-inactive-theme-configs
+```
+
+Stock MainUI opens `/mnt/SDCARD/Themes`, enumerates every installed theme directory, builds each
+`<theme>/config.json` path, opens and parses the JSON, and runs the theme callback before it later
+loads `/mnt/SDCARD/system.json` and resolves which theme is actually active. That means startup work
+grows with every installed theme even though MainUI only needs the selected theme for normal use.
+
+This selector keeps the stock top-level `/Themes` directory loop and its lifecycle, but filters each
+directory entry **before** MainUI constructs the child config path. A small read-only pre-pass of
+`/mnt/SDCARD/system.json` extracts only the selected external theme path into bounded private state.
+The normal stock `system.json` loader still runs later at its original location and retains ownership
+of the real MainUI settings/theme initialization.
+
+For a valid selected path under `/mnt/SDCARD/Themes/`:
+
+```text
+selected theme entry:
+    stock path construction -> stat/access -> fopen -> JSON parse -> theme callback
+
+all other theme entries:
+    next readdir immediately
+```
+
+Inactive theme directories are therefore never opened by this scan, and their `config.json` files
+are not statted, opened, read, parsed, or passed to the theme callback. The parent
+`/mnt/SDCARD/Themes` directory is still opened and enumerated so the stock scan control flow itself
+remains intact.
+
+The pre-pass mirrors MainUI's stock JSON parser ownership: the raw parse allocation is converted to
+the normal JSON object, the top-level `theme` string is read, and both parser-owned layers are
+released through the same stock cleanup routines. The copied path is capped at 255 bytes.
+
+This is deliberately fail-open. If `system.json` is missing or malformed, the `theme` field is not a
+string, the selected path is unavailable, too long, outside `/mnt/SDCARD/Themes/`, or does not name
+exactly one direct child theme directory (with an optional trailing slash), the private selection
+remains unresolved and the complete stock all-theme scan runs unchanged. The built-in `./` default
+therefore retains stock behavior rather than guessing an external theme.
+
+This optimization changes which installed theme objects MainUI constructs at startup, so physical
+hardware testing remains the release gate. In particular, test cold boot, ROM-list entry/navigation,
+Favorites, Recent, Settings, external ThemeSwitcher handoff/return, and repeated MainUI restarts with
+multiple installed themes.
+
+---
+
 ## Theme-configurable bold style for game-list row fonts
 
 Patch name:
@@ -1392,23 +1686,23 @@ invalid non-boolean    -> true
 ```
 
 The setting is applied to game-list row fonts used by ROM, Favorites, Recent, and Search-result
-lists. Device testing showed that Language, Systems, Apps, Settings, and other non-game menus use
-separate font/style paths and are therefore not changed by this patch. It also does not change title
-fonts, game-detail fonts, or keyboard keys.
+lists. Language, Systems, Apps, Settings, title, detail, keyboard, and other independently loaded
+fonts remain outside its scope.
 
-When `patch-rom-list-font-size` is selected at the same time, the optional ROM/Favorites/Recent
-size-override font receives the same bold or normal style as the stock game-list font.
+`TTF_SetFontStyle` mutates a `TTF_Font` object globally, so an explicit `false` does **not** restyle
+MainUI's shared theme font. The patch instead opens/caches a private game-list font at the active
+theme font path and size, applies normal style only to that private object, and routes the verified
+game-list font users to it. When `patch-rom-list-font-size` is selected at the same time, the private
+size-override font receives the requested style as well. Stock shared-font bold calls remain
+stock-owned and cannot leak a normal style into titles or unrelated menus.
 
-The patch wraps the verified active-theme `list` lookup because that call still has the real theme
-root in `r0`. The wrapper reads only the top-level `gamelist.bold` value from the active theme. A
-separate per-system JSON field also named `gamelist` contains a string/path and must not be used as
-the theme style object. The wrapper returns the original `list` object unchanged, and the
-`list.bold` compatibility key is not recognized.
-
-Six signature-validated game-list font-loader calls and four later stock `TTF_SetFontStyle(...,
-TTF_STYLE_BOLD)` calls are also wrapped. Those late calls occur after the font loader returns and
-would otherwise overwrite an explicit false setting. Missing or invalid values deliberately retain
-the stock bold style. Restart MainUI or switch themes after editing `config.json`.
+The parser reads only the top-level theme `gamelist.bold` value. A separate per-system JSON field
+also named `gamelist` contains a string/path and is not the theme style object; `list.bold` is not a
+compatibility alias. During the installed-theme scan, patched values are staged by exact theme path
+and never written directly to live font state. Active-theme initialization resets the live setting
+and applies only an exact selected-theme match, so another installed theme cannot affect the active
+font weight. Missing or invalid values deliberately retain stock bold. Restart MainUI or switch
+themes after editing `config.json`.
 
 ---
 
@@ -1688,6 +1982,45 @@ present, its non-file branch must target the guarded directory block, and the la
 must target the guarded DB-scan function. A supported binary whose local bytes still resemble the
 hook block but whose scan routing has changed is therefore rejected rather than patched.
 
+## Recursive ROM rebuild path safety
+
+Patch name:
+
+```text
+fix-rom-rebuild-path-safety
+```
+
+The scan-based `cache6.db` rebuild allocates one shared path buffer and passes it recursively through
+MainUI's directory walker. Stock MainUI sizes that buffer as the ROM-root string length plus 256
+bytes, then uses unbounded `sprintf` for three different path constructions. The same allocation is
+reused at deeper directory levels, so ordinary filesystem-component limits do not guarantee that the
+complete recursive path fits. The image-path formatter can also start from a different root than the
+ROM path used to size the allocation.
+
+This selector makes the rebuild path explicitly bounded:
+
+- the shared path allocation is fixed at **4096 bytes**;
+- all three verified recursive path builders use `snprintf(..., 4096, ...)` through compact wrappers;
+- a negative formatter result or a required length of 4096 bytes or more is treated as failure;
+- a failed/overlong entry is cleared and skipped through that call site's existing loop/cleanup path;
+- paths are never silently truncated and then inserted into `cache6.db`;
+- the 128-byte filename scratch is explicitly terminated after stock `strncpy(...,127)`, so a
+  127-byte-or-long directory entry cannot make the later `strrchr` scan beyond the scratch buffer;
+- both rebuild allocations are checked before their first use. A failed path-buffer allocation exits
+  through the existing rebuild return path; a failed 512-byte SQL-buffer allocation frees the first
+  allocation through the verified stock cleanup path.
+
+The patch intentionally changes only the scan-based rebuild's temporary construction buffers. It does
+not enlarge stored database fields, change the filesystem path used to launch a game, or reinterpret
+an overlong name. An entry whose complete temporary path does not fit the 4096-byte bound is omitted
+from that rebuild rather than represented under a truncated identity.
+
+The patcher fails closed on the surrounding recursive function identities, allocation call/cleanup
+shape, filename-scratch capacities, recursive buffer/capacity forwarding, all three stock path-format
+strings and `sprintf` call targets, and the folder-row temporary-string destructor/skip continuation.
+This is deliberately stricter than checking only the three modified instructions because an incorrect
+failure continuation in this function could corrupt a derived `cache6.db` or leak rebuild state.
+
 ## Throttled battery and Wi-Fi status work
 
 Patch name:
@@ -1716,6 +2049,48 @@ icon above 50% was not reproduced, so this package still does not claim a batter
 
 The external `axp_test` battery backend is deliberately retained because no direct hardware/sysfs
 replacement was proven for all supported Miyoo variants.
+
+## Wi-Fi connect-command quoting
+
+Patch name:
+
+```text
+fix-wifi-network-shell-quoting
+```
+
+MainUI's Wi-Fi **scan** path is unchanged. The affected stock code runs only after the user chooses a
+network and connects. Stock MainUI formats the selected SSID, and for secured networks the entered
+PSK, into a shell command before calling `system()`. The stock format contains backslash-escaped
+double quotes; after `/bin/sh -c` parses the command those do not provide a shell quoting boundary
+around the interpolated value. Spaces can therefore split a legitimate SSID/passphrase into multiple
+shell words, while characters such as `$`, backticks, `;`, `&`, `*`, parentheses, or embedded quote
+syntax can be interpreted by the shell instead of passed literally to `wpa_cli`.
+
+The selector replaces only the three verified connect-time formatter/executor pairs:
+
+```text
+open network:     set_network 0 ssid <selected SSID>
+secured network:  set_network 0 ssid <selected SSID>
+secured network:  set_network 0 psk  <entered passphrase>
+```
+
+A compact helper builds the complete command in its own **512-byte stack buffer**. The untrusted value
+is enclosed in POSIX-shell single quotes, and an embedded apostrophe is represented by the standard
+close/escaped-apostrophe/reopen sequence. Literal double quotes remain around the value delivered as
+the final `wpa_cli` argument, preserving the stock `wpa_supplicant` value semantics. The helper calls
+the already imported `system()` only after the complete command has been assembled successfully. A
+NULL input/prefix/function pointer or a value that would exceed the bounded command buffer returns
+failure without executing a partial command.
+
+This fixes both the ordinary functional case (for example an SSID or passphrase containing spaces)
+and the command-injection class without changing Wi-Fi discovery, list rendering, password entry, or
+`wpa_cli` itself. The patcher provenance-checks both connect function entries, the stock SSID/PSK
+format strings, all three `sprintf` and `system` targets, command-buffer handoff instructions,
+format-pointer loads, and the exact SSID/PSK input locals before redirecting the sites.
+
+The retained 276-byte ARM helper is generated from `WIFI_SAFE_COMMAND_C_SOURCE`. Its reference build
+uses LLVM/Clang 17 with the same ARMv7-A hard-float ARM-mode freestanding flags documented in the
+embedded-core section below.
 
 ## Nested temporary CPU-governor bursts
 
@@ -1979,24 +2354,27 @@ the sidecar, then overlays folders and assignments onto the stock model. A Favor
 assignment appears at root, so newly added stock Favorites require no custom write hook.
 
 When SELECT opens the normal ROM-list context menu, the patch revalidates the Favorite model and
-checks the selected GameAction's exact ROM path at the two sites that actually determine the visible
-action. At `0x30108`, a small dispatcher supplies translation ID 55 (**Add Favorite**) or private
-405 (**Remove Favorite**). The stock translation call at `0x3010C` is also dispatched: ID 55
-continues through MainUI's stock translator, while ID 405 is resolved by the Favorite core's
-private-language loader with embedded English fallback. At `0x30138`, a matching dispatcher
-tail-calls the stock `AddFavoriteAction` constructor (`0x3A054`) or stock `RemoveFavoriteAction`
-constructor (`0x3A110`). This visible selector has been verified on hardware.
+checks the selected GameAction's persistent ROM identity at the two sites that actually determine the
+visible action. Ordinary ROMs use their exact path. When `fix-search-favourite-status` is also enabled,
+Search's encoded `launch.sh:<real ROM>` identity first keeps exact legacy compatibility and then retries
+the canonical real-ROM suffix. At `0x30108`, a small dispatcher supplies translation ID 55
+(**Add Favorite**) or private 405 (**Remove Favorite**). The stock translation call at `0x3010C` is
+also dispatched: ID 55 continues through MainUI's stock translator, while ID 405 is resolved by the
+Favorite core's private-language loader with embedded English fallback. At `0x30138`, a matching
+dispatcher tail-calls the stock `AddFavoriteAction` constructor (`0x3A054`) or stock
+`RemoveFavoriteAction` constructor (`0x3A110`). This visible selector has been verified on hardware.
 
 The mutation path uses the RTTI/vtable-derived map. `RemoveFavoriteAction::run` is `0x19ACC`;
 `0x1A44C` belongs to `DeleteRomAction`. The patch hooks the verified Remove run entry. For an
 ordinary ROM popup, `RemoveFavoriteAction::field_8` is the selected TextItem, and its GameAction is
 dereferenced at `TextItem+0x18`; the exact ROM path then comes from the GameAction string at
 `+0x24`. The hook removes that exact record from `favourite.json`, clears any sidecar assignment,
-and publishes both models through their existing checked writers. It also clears the renderer's real
-live-star flag at **TextItem+0x1D** and posts the normal wake/repaint event. `TextItem+0x1E` is the
-stock remove-request flag and is deliberately not used for live-star invalidation. Custom
-Favorite-folder rows retain their existing menu-aware removal path. If the object cannot be resolved
-safely, the hook falls back to stock.
+and publishes both models through their existing checked writers. With the Search Favorite selector
+enabled, an exact encoded lookup is retained for legacy rows and a miss may retry the canonical real-ROM
+suffix before falling back to stock. It also clears the renderer's real live-star flag at
+**TextItem+0x1D** and posts the normal wake/repaint event. `TextItem+0x1E` is the stock remove-request
+flag and is deliberately not used as the membership source. Custom Favorite-folder rows retain their
+existing menu-aware removal path. If the object cannot be resolved safely, the hook falls back to stock.
 
 Normal ROM deletion is deliberately kept separate. Stock `DeleteRomAction::run` at `0x1A44C` keeps
 its normal dispatch to the ordinary ROM vtable `+0x30` -> `DBCachedTextMenu::deleteRow @ 0x24A14`.
@@ -2086,9 +2464,50 @@ With `optimize-recent-list-loading` enabled, both verified name-resolution calls
 Recent builder use the label already present in the parsed `recentlist.json` record. The replacement
 is the single ARM instruction `mov r0,r1` at each callsite: the saved label pointer is returned in
 the register where the stock caller expects the resolved display name. No ROM database is queried,
-and launch path, image path, type, App mapping, Favorite membership, and row-action construction
-remain stock. A malformed record with an empty label remains empty rather than triggering the
+and this selector itself does not change launch path, image path, type, App mapping, Favorite membership,
+or row-action construction. A malformed record with an empty label remains empty rather than triggering the
 expensive global name resolver.
+
+### Consistent Recent identity and previews
+
+Patch name:
+
+```text
+fix-recent-preview-paths
+```
+
+Recent records can contain two useful `imgpath` shapes. Some launches save a complete PNG path, while
+others save a bare display/name value that is not itself a usable image pathname. Stock MainUI consumes
+those records inconsistently: the Recent list derives artwork from the source system, while Game Details
+uses the saved action image string. Initial RIGHT-open and later Up/Down refresh also travel through
+different detail paths. A record can therefore show artwork in the list but `thumb-default.png` in
+Details, or the reverse; moving Up then Down can appear to repair the detail image because the later
+refresh takes a different path from initial construction.
+
+This selector gives all three Recent thumbnail consumers one rule:
+
+```text
+saved imgpath contains an explicit .png path
+    -> use that exact PNG
+
+otherwise
+    -> use the source system image directory and derive the PNG from the real ROM path
+```
+
+The rule is applied to the Recent list preview, the verified ordinary GameAction RIGHT-open path, and
+the later Game Details Up/Down refresh. The unrelated alternate detail-construction path is left stock
+because it uses a different action/config layout rather than the ordinary game `GameAction::imgpath`.
+The exact Recent TextMenu identity is cleared when ROM/Favorite constructors take over and again when
+that tracked TextMenu is destroyed, eliminating stale-address reuse across later lists.
+
+The same selector also normalizes Onion Search's Recent identity. SearchFilter can save a game as
+`<source launch.sh>:<real ROM>` while the record launcher names the synthetic Search app. Before both
+live insertion and file reconstruction, that pair is converted to the source emulator launcher plus
+real ROM path. A Search launch and a direct-console launch of the same game therefore compare as one
+Recent identity and keep normal move-to-front/first-occurrence semantics instead of occupying two rows.
+Exact `launch == "setstate"` pseudo-records are rejected before `Add2RecentList`, so they cannot consume
+one of the retained game slots. Existing JSON is not rewritten merely by loading it; canonicalization
+is applied to the in-memory Recent model and to new records written by later launches.
 
 ### Reading and retaining 50 Recent entries
 
@@ -2105,7 +2524,10 @@ instead of removing and reinserting the earlier row. Once 50 rows have been reta
 records from the remaining part of the 200-record window are also ignored rather than evicting an
 earlier top-of-file entry. When `exclude-apps-from-recent-list` is also enabled, stale type-3
 AppAction records are skipped before `Add2RecentList`, so they do not consume any of those 50
-retained slots.
+retained slots. With `fix-recent-preview-paths` enabled, exact `launch == "setstate"` pseudo-records
+are filtered at the same pre-retention boundary, and Search/direct launches that normalize to the same
+source emulator + ROM identity are deduplicated as one game. Later valid records inside the 200-record
+scan window can therefore continue filling the retained vector up to 50 real unique games.
 
 This load-only rule does not change live launch behavior. If a game that is already in Recent is
 actually launched again, MainUI keeps its stock move-to-front behavior. The JSON format, row
@@ -2176,6 +2598,12 @@ After **Move selected**, registered Favorite menus refresh immediately so the vi
 appears without waiting for another input cycle. **Move here** uses the same immediate-presentation
 rule: after the sidecar is published, the Favorite model is reloaded and registered menus are
 refreshed in the same action, so the relocated row appears without waiting for another key event.
+
+After a successful **Create folder**, the existing deferred Favorite refresh is retained. The newly
+appended folder row is armed as the per-menu restore target, so when the keyboard closes and the
+rebuilt list is presented, that new folder is selected and the viewport is normalized to make it
+visible. The folder is not entered automatically. Failed, duplicate, invalid, or cancelled creates
+do not change the selection.
 
 When B leaves the Favorite root, its live selected row and first visible row are copied into the
 existing Favorite process-local BSS state **before** stock MainUI starts tearing down the list. The
@@ -2430,7 +2858,7 @@ It passes normally and under AddressSanitizer/UndefinedBehaviorSanitizer with le
 tests do not prove ARM register preservation, stock vtable semantics, preview behavior, or
 window-stack ownership on a Miyoo device.
 
-## Suppressed hot-path ROM debug logging
+## Suppressed hot-path development logging
 
 Patch name:
 
@@ -2438,8 +2866,11 @@ Patch name:
 suppress-rom-database-debug-logging
 ```
 
-The expanded patch removes twelve unconditional development messages from hot ROM-list paths while
-retaining failure-only diagnostics and low-frequency summary output.
+Hot-path development logging (ROM database, Recent, preview, Favourite refresh, menu teardown) is
+suppressed by this selector. It removes sixteen unconditional development/debug output calls in
+total while retaining failure-only diagnostics and low-frequency summary output. Twelve are in the
+hot ROM-list paths listed below; four additional calls cover Recent reconstruction, the Favourite
+per-frame refresh line, and `TextMenu::freeListItem` teardown output.
 
 Preview image processing:
 
@@ -2473,7 +2904,22 @@ ROM metadata/cache loading:
 0x00023f0c  row-step result
 ```
 
-Each call is found from its unique format-string pointer load, verified as a direct call to imported
+Additional development/teardown output suppressed by the same selector:
+
+```text
+0x0001b57c  Recent per-record debug printf
+0x0001c17c  Favourite per-frame "refresh %s removed %d" printf
+0x00020684  TextMenu::freeListItem per-row printf
+0x000206c0  TextMenu::freeListItem final "end" puts
+```
+
+The two `TextMenu::freeListItem` calls are output-only. Their format loads and imported
+`printf`/`puts` targets are provenance-checked, and only the calls are NOPed. Item lookup, string and
+object destruction, loop progression, and all actual frees remain stock. This avoids one formatted
+stdout call per menu row during teardown even when the normal Onion launcher ultimately sends stdout
+to `/dev/null`.
+
+Each ROM/debug call is found from its unique format-string pointer load, verified as a direct call to imported
 `printf`, checked against the stock successor instruction, and replaced with one ARM NOP. Error-path
 messages such as database open/execute failures are left intact. The one-time
 `create_rom_browser_menu` line and rebuild item/total summaries also remain.
@@ -3017,12 +3463,13 @@ missing or unreadable file -> scrolling disabled
 fewer than two parsed integers -> scrolling disabled
 negative idle time         -> scrolling disabled
 non-positive speed         -> scrolling disabled
-idle time                   -> clamp to 0..30000 ms
+idle time                   -> clamp to 10..30000 ms; values 0..9 become 10 ms
 scroll speed                -> clamp to 5..400 pixels/second
 ```
 
-An idle value of `0` starts immediately. Recommended example: wait 700 milliseconds, then scroll at
-120 pixels per second:
+The 10 ms minimum prevents marquee evaluation from becoming visible before the selected row's
+preview geometry has had a chance to settle. Recommended example: wait 700 milliseconds, then
+scroll at 120 pixels per second:
 
 ```sh
 700,120
@@ -3035,6 +3482,11 @@ draw after navigation starts again from the normal unscrolled position.
 The feature is limited to tagged ROM, Favorites, Recent, and Search-result lists. The Language
 selector, Systems, Apps, Settings, and unrelated menus retain stock rendering. It can be enabled
 independently of the row-count and font-size patches.
+
+The marquee uses the same active/previous game-list identity rule at both of its runtime gates. A
+source console list that is re-exposed after contextual Search may still be stored as the previous
+`state+0x44` object instead of the active `state+0x40` object; both the selected-row arming path and
+the final scrolling blit accept either identity. No pointer promotion is performed from the draw path.
 
 ### Selected-title detection
 
@@ -3053,10 +3505,14 @@ path.
 MainUI also copies long list labels through a stock `strncpy(..., 64)` scratch buffer. The patch
 leaves that copy length and destination completely unchanged, preserving adjacent text-style and
 color fields. Because `strncpy` does not terminate a 64-byte-or-longer source, the final scratch byte
-is explicitly set to NUL; non-selected long rows therefore truncate safely instead of reading into
-adjacent object state. The pointer chosen immediately afterward is changed only for the selected row.
-Selected titles are rendered from the original `std::string::c_str()` value and can marquee-scroll
-through the complete suffix without expanding or overwriting MainUI's internal scratch storage.
+is explicitly set to NUL. **Non-selected rows therefore display at most the first 63 bytes plus that
+terminating NUL.** This is a byte limit, not a pixel-width or character-count limit; with proportional
+glyphs, two equally truncated labels can visibly end at very different X positions before reaching
+the common right-edge clip. That appearance is intentional and is not a different row-padding value.
+
+The pointer chosen immediately afterward is changed only for the selected row. Selected titles are
+rendered from the original `std::string::c_str()` value and can marquee-scroll through the complete
+suffix without expanding or overwriting MainUI's internal scratch storage.
 
 The low-level UTF-8 helper is hooked at its final `SDL_UpperBlit`. A one-shot selected label marker
 identifies the complete title surface. The wrapper stores:
@@ -3103,29 +3559,48 @@ current row with `TextMenu::selected` and records the icon destination `x` only 
 that actually draws the marker. When the row-count patch is enabled, the same wrapper chains into
 the existing centered icon-crop helper, so the icon is not double-hooked.
 
-On the following draw, the marquee keeps **two widths**. The draw viewport begins with the stock
-label-box width and is narrowed only by the selected Favorite-marker boundary taken from the marker's
-actual destination x. Separately, the overflow-activation width also considers the preview-pane edge
-while the same live pre-draw state says a preview is active. This preserves the proven ROM-list
-activation threshold without forcing the moving title to stop at the thumbnail pane.
+On the following draw, the marquee keeps **two widths**. In the normal integrated build where
+`patch-rom-list-rows` is enabled, its draw viewport uses the exact same shared right edge as the static
+tagged-row clip: actual destination surface width minus the active row-count outer padding. The
+selected Favorite-marker boundary may narrow that viewport further. Separately, the overflow-activation
+width also considers the preview-pane edge while the same live pre-draw state says a preview is active.
+This preserves the proven ROM-list activation threshold without forcing the moving title to stop at the
+thumbnail pane. A title-scroll-only partial build without the row patch retains its established stock
+label-box width.
 
-Conceptually:
+Conceptually for the integrated build:
 
 ```text
-draw_width = stock_label_box_width
+right_edge = destination_surface_width - row_right_padding
+draw_width = right_edge - selected_title_x
 if selected_row_draws_favorite_marker:
     draw_width = min(draw_width, favorite_icon_x - 6 - selected_title_x)
 
 activation_width = draw_width
-if live_preview_active:
+if live_preview_active and preview_pane_x - selected_title_x > 0:
     activation_width = min(activation_width, preview_pane_x - selected_title_x)
 ```
 
+The positive-width check is intentional. The preview-active flag and preview-pane coordinate are
+published by different parts of MainUI, and the pane coordinate is cleared during selection/reset
+transitions. A transient `preview_pane_x == 0` must therefore not produce a negative activation
+width and incorrectly arm scrolling for a short title.
+
+> [!NOTE]
+> **Preview-pane geometry:** the shared hard right edge comes from the destination surface width, not
+> from the preview-pane edge. With 14 rows on the normal 640-pixel surface, for example, the hard title
+> edge remains `x=625` even while a preview pane is visible. The pane participates only in deciding
+> whether overflow scrolling should activate; once active, the title may continue underneath the later
+> preview artwork until the shared row edge (or a Favorite-marker boundary) clips it. This matches the
+> current validated design and is not treated as a regression. Preview-present long titles remain a
+> useful hardware regression case if this layering is changed in the future.
+
 Scrolling is enabled when `complete_title_width > activation_width`, but once active the marquee is
 rendered through `draw_width`. Therefore a non-Favorite title with a thumbnail can start scrolling at
-the same point as before and then travel underneath the later preview artwork all the way through the
-normal label box. A no-thumbnail title uses the same width for activation and drawing. Fixed-lane
-Favorite titles stop before the fixed marker; dynamic-mode Favorites follow the marker's live position.
+the same point as before and then travel underneath the later preview artwork to the same row-right
+boundary used by static titles. A no-thumbnail title uses the same width for activation and drawing.
+Fixed-lane Favorite titles stop before the fixed marker; dynamic-mode Favorites follow the marker's live
+position while retaining the common base row-right boundary.
 
 Before the idle timeout the stock title path is retained. After the idle timeout the moving content is
 treated as a continuous stream:
@@ -3742,6 +4217,35 @@ Related report:
 
 ---
 
+## Optional context-menu selection background
+
+Patch name:
+
+```text
+patch-context-menu-selection-background
+```
+
+Popup context menus normally reuse the full-width game/list selection asset. Because popup windows
+are much narrower than the normal 640-pixel list, themes can optionally provide:
+
+```text
+skin/bg-list-popup-s.png
+```
+
+`PopupWindow` first constructs its child menu and loads the ordinary selection surface exactly as
+before. The patch then tries `bg-list-popup-s.png` from the **active theme only**. On success, that
+surface replaces the popup's private selection surface and remains owned/freed through the normal
+TextMenu lifetime. If the optional file is missing or cannot be decoded, the existing selection
+surface is left untouched, giving old themes an automatic fallback with no configuration change.
+
+The popup's child-menu width follows the active `bg-pop-menu-N.png` background. Theme authors should
+therefore make `bg-list-popup-s.png` the same width as their numbered popup backgrounds. A 60-pixel
+height matching the normal popup row is the safest choice. `bg-list-popup-s.png` is the highlighted
+row strip; `bg-pop-menu-1.png` through `bg-pop-menu-6.png` remain the popup container/background
+assets.
+
+---
+
 ## Theme style for dialog action labels
 
 Patch name:
@@ -3959,8 +4463,8 @@ finite gap range:       0x16D220..0x16DDC0
 used through:           0x16D984
 used:                   1,892 bytes
 remaining:              1,084 bytes
-appended R-X payload: 131,920 bytes
-bounded added BSS:     61,744 bytes
+appended R-X payload: 146,484 bytes
+bounded added BSS:     79,944 bytes
 ```
 
 An 80-byte in-gap allocation remains reserved at the former font-selector location so unrelated
@@ -3991,10 +4495,20 @@ The original executable segment grows only to the last remaining gap allocation.
 payloads are mapped in a separate R-X segment; writable BSS remains non-executable. The protected
 256-byte parser/classification table at VA `0x1547B0` is checked byte-for-byte before output.
 
+### Performance experiments not retained
+
+Additional hardware experiments evaluated three earlier fast paths: bypassing repeated preview
+preparation when the selected game and resolved preview were unchanged, skipping full row preparation
+for non-selected rows already completely outside the vertical clip rectangle, and sharing one frame
+timestamp across marquee timing helpers. After the lifecycle guards required for safe MainUI ownership
+were retained, timed navigation and normal UI use showed no measurable or perceptible improvement.
+These shortcuts are therefore not part of the production patcher. Reintroducing them should require
+new profiling evidence that identifies one of these paths as a meaningful bottleneck on device.
+
 ### Rebuilding the embedded ARM cores
 
 A compiler is **not** required to apply patches. It is needed only when verifying or intentionally
-changing the four active freestanding C implementations embedded in `onionos_mainui_patcher.py`:
+changing the five active freestanding C implementations embedded in `onionos_mainui_patcher.py`:
 
 ```text
 FAVOURITE_FOLDERS_C_SOURCE
@@ -4005,6 +4519,7 @@ RECENT_REMOVE_C_SOURCE
 RECENT_REMOVE_LINKER_SCRIPT
 MAIN_MENU_LAYOUT_C_SOURCE
 MAIN_MENU_LAYOUT_LINKER_SCRIPT
+WIFI_SAFE_COMMAND_C_SOURCE
 ```
 
 The retained ARM payloads were generated with LLVM 17.0.0 for ARMv7-A Linux EABI, hard-float, ARM
@@ -4041,6 +4556,8 @@ out.mkdir(parents=True, exist_ok=True)
 (out / "metadata_patch.embedded.bin").write_bytes(module.MIYOOGAMELIST_DETAIL_METADATA_CORE)
 (out / "recent_remove_patch.embedded.bin").write_bytes(module.RECENT_REMOVE_CORE)
 (out / "main_menu_patch.embedded.bin").write_bytes(module.MAIN_MENU_LAYOUT_CORE)
+(out / "wifi_safe_command.c").write_text(module.WIFI_SAFE_COMMAND_C_SOURCE)
+(out / "wifi_safe_command.embedded.bin").write_bytes(module.WIFI_SAFE_COMMAND_CORE)
 PY
 cd build/embedded-cores
 ```
@@ -4103,6 +4620,20 @@ llvm-objcopy -O binary --only-section=.text \
   main_menu_patch.elf main_menu_patch.bin
 ```
 
+Build the Wi-Fi shell-quoting core. This helper has no external relocations because `system()` is
+received as a function pointer, so its dedicated function section can be extracted directly from the
+object without a linker script:
+
+```sh
+clang --target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard \
+  -mfpu=vfpv3-d16 -marm -O2 -ffreestanding -fno-builtin \
+  -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
+  -fvisibility=hidden -ffunction-sections -fdata-sections \
+  -c wifi_safe_command.c -o wifi_safe_command.o
+llvm-objcopy -O binary --only-section=.text.wifi_safe_system \
+  wifi_safe_command.o wifi_safe_command.bin
+```
+
 The OnionUI Miyoo Mini toolchain image is available from GitHub Container Registry:
 
 ```sh
@@ -4139,6 +4670,7 @@ cmp favfolders_patch.bin favfolders_patch.embedded.bin
 cmp recent_remove_patch.bin recent_remove_patch.embedded.bin
 cmp main_menu_patch.bin main_menu_patch.embedded.bin
 cmp metadata_patch.bin metadata_patch.embedded.bin
+cmp wifi_safe_command.bin wifi_safe_command.embedded.bin
 readelf -h favfolders_patch.elf recent_remove_patch.elf main_menu_patch.elf metadata_patch.elf
 readelf -r favfolders_patch.elf recent_remove_patch.elf main_menu_patch.elf metadata_patch.elf
 ```
@@ -4152,7 +4684,7 @@ The patcher verifies recognized hashes, ELF structure, protected bytes, exact ho
 targets, imports, retained-core hashes and entry offsets, segment permissions, non-executable stack
 state, bounded BSS growth, deterministic placement, and atomic output publication.
 
-It also performs four inexpensive post-emission safety audits on the generated payload:
+It also performs eight inexpensive post-emission/host safety audits on the generated payload:
 
 - odd-register-count ARM `PUSH` sites are followed through their straight-line basic block and any
   nested `BL`/`BLX` must still have an 8-byte-aligned stack;
@@ -4160,7 +4692,18 @@ It also performs four inexpensive post-emission safety audits on the generated p
   partial-selector builds may legitimately omit the helpers that own them;
 - aligned patch-owned writable-state literals must remain within the allocated new-BSS range;
 - the four SDL functions resolved with `dlsym` retain their expected fail-open/null-guard structure
-  when their owning helper is present.
+  when their owning helper is present;
+- the stock-six title-scroll/game-icon helper must emit the proven height-before-width load order, so
+  the icon `SDL_Surface*` cannot be overwritten by its integer width before the height dereference;
+- game-icon square-crop arithmetic is host-swept across row counts 6 through 20 and source dimensions
+  through 512 px, including the stock-six 61-70 px negative-offset edge range, preserving stock
+  signed division-by-two rounding;
+- the documented wide-spacer classifier and paired title-X/title-width geometry are host-checked across
+  stock-style 6/7 rows and dense-row transitions so a wide transparent spacer cannot silently give the
+  marquee a wider rectangle than the row renderer actually uses;
+- Recent/Search identity and thumbnail models verify Search/direct canonicalization, pre-retention
+  `setstate` filtering, explicit-PNG precedence, source-image-directory fallback, Favorite detail-image
+  fallback, and Search Favorite real-ROM identity normalization.
 
 These are deliberately cheap structural guards. They are not a full control-flow proof, generic
 push/pop reachability analysis, or full register/data-flow reconstruction. The more expensive
@@ -4169,6 +4712,66 @@ normal build-time operation.
 
 Static checks cannot prove device lifecycle, SDL scheduling, SQLite performance, or
 hardware-specific behavior.
+
+## Deferred preview-path performance work
+
+No preview-path behavior is changed in this build, but device tracing identified three useful future
+optimizations that are intentionally documented rather than patched yet.
+
+### `makeThumbPath` and large `Imgs` directories
+
+MainUI's preview path resolver constructs the candidate PNG path and performs a synchronous
+filesystem existence check before it dispatches the asynchronous image worker. The worker then opens
+the same pathname again through `IMG_Load`.
+
+Device traces show why this matters for unusually large flat artwork directories. With an Arcade
+`Imgs` directory containing roughly 15,000 files, the first cold Favorite lookup into that directory
+spent about 134-160 ms in the synchronous path-resolution stage, while `IMG_Load` itself took only
+about 6-7 ms once the worker was allowed to start. The next image lookup in the same warmed Arcade
+directory was effectively immediate. By comparison, a first lookup in a more normally sized GBC
+artwork directory took about 10 ms.
+
+This strongly suggests that the visible first-row hitch is the cold directory/path existence lookup,
+not PNG decoding, scaling, Favorite parsing, or worker creation. A future experiment could move the
+existence decision into the existing worker, cache a proven artwork-directory/path result, or
+otherwise avoid the synchronous `__xstat` on the UI thread. Before doing so, the complete
+`makeThumbPath` fallback semantics must be mapped so missing/alternative artwork behavior is not
+silently changed. The desired result would be immediate navigation even if artwork from a huge
+folder appears a little later.
+
+### Favorite synthetic folders
+
+Patcher-created Favorite folder rows currently enter MainUI's game-preview updater even though a
+folder cannot have a game thumbnail. Tracing shows calls such as a synthetic `/Racing` Favorite row
+being tested against the Search console's `.../App/Search/data/Imgs` context and failing. These
+negative checks are usually cheap once cached, so they are not the large first-game hitch, but the
+work is semantically pointless.
+
+A future patch should recognize the existing synthetic Favorite-folder discriminator and bypass
+preview-path generation entirely, while explicitly publishing the same no-preview/clear state that
+stock folder handling expects so a previous game's artwork can never remain stale.
+
+### Synthetic ordinary-ROM `..` row
+
+The patcher-created parent `..` row in a non-root ordinary ROM directory similarly enters preview
+path generation even though it cannot own artwork. Stock physical ROM folder rows observed in the
+same traces already avoid this bogus preview lookup, so the synthetic parent row should eventually
+follow that behavior and bypass preview generation as well. As with Favorite folders, stale-preview
+clearing and worker lifecycle must be preserved exactly.
+
+## Discarded loading-progress animation throttle
+
+A previous test selector, `throttle-loading-progress-animation`, changed only the three-dot loading
+animation sleep from 28 ms to 100 ms. In stock MainUI the immediate is at VA `0x19390`
+(`mov r0,#28`) and the following call at `0x19394` targets `SDL_Delay`. The test replaced the first
+instruction with `mov r0,#100`, reducing the target redraw cadence from about 36 fps to about 10 fps
+while leaving the draw/blit/`SDL_Flip` path unchanged.
+
+No noticeable device improvement was observed, so the experiment is discarded in favor of retaining
+stock timing and behavior. If it is ever revisited, keep it as the same isolated one-instruction
+experiment: provenance-pin `0x19390` to `0xE3A0001C`, verify the `0x19394` branch still resolves to
+`SDL_Delay`, and replace only the immediate with `0xE3A00064`. Do not combine it with unrelated
+loading or rendering changes until a measurable benefit is demonstrated.
 
 ## Known limitations
 
@@ -4228,23 +4831,6 @@ hardware-specific behavior.
   deliberately does not substitute a raw filesystem count.
 - The sidecar is global, matching the stock global Favorite file. It does not create a separate
   folder tree for Guest mode.
-- Returning to **Settings** after launching the restored **Themes** or **Tweaks** Settings row can
-  leave the Settings page title blank. This has only been observed for this Themes/Tweaks-from-
-  Settings return path; no equivalent problem has been observed for other sections, so a future fix
-  should remain narrowly scoped rather than generalized. Current analysis indicates that the live
-  Settings window can be persisted with string-title identity / numeric title `-1` and later restored
-  through MainUI's numeric-title path. A proposed fix is to restore the live Settings window's stock
-  numeric title ID `15` immediately before the Themes/Tweaks external AppAction launch, so the normal
-  state save records a valid Settings title. This is documented only and is not applied in this
-  release.
-- After creating a new Favorite folder, the rebuilt Favorite list currently keeps approximately the
-  previous numeric selection instead of selecting the newly created folder. The desired future
-  behavior is to return from the keyboard with the new folder selected and visible, without entering
-  it. A narrow proposed implementation is to reuse the existing per-menu `restore_row` /
-  `restore_pending` fields: after a successful sidecar commit, arm the target row for the newly
-  appended folder, then let the existing deferred Favorite refresh rebuild the menu and apply
-  `set_menu_selected()`/viewport normalization on the next normal list cycle. This should require no
-  new persistent BSS state. The change is documented only and is not applied in this release.
 - The OnionOS global search app emulates a console, so it is possible to use the built in console 
   search within global search, which might look strange. It works, but results are duplicated. 
 - Ordinary ROM-folder setup keeps the established full-window request while the redundant stock top
@@ -4271,7 +4857,10 @@ hardware-specific behavior.
   movement, including later repeat keydowns.
 - The `gamelist.bold` setting applies to game-list row fonts only. Language, Systems, Apps,
   Settings, title, detail, keyboard, and other independently loaded fonts are outside its scope. The
-  `list.bold` compatibility location is intentionally unsupported.
+  `list.bold` compatibility location is intentionally unsupported. `gamelist.iconLeftMargin` belongs
+  to the ROM-list row patch, accepts 0..300, and controls the aligned folder/game icon layout. Both
+  patch-added theme settings are resolved only for the exact active theme; values found while scanning
+  other installed themes cannot become live state.
 - MainUI's stock rapid-navigation tracker can retain more than 25 entries when the action changes
   within 200 ms. That stale state makes a single later Up/Down action select the page-step method.
   `fix-game-list-rapid-navigation` redirects only the verified mismatch branch to MainUI's existing
@@ -4382,6 +4971,77 @@ These commands preserve image proportions and never enlarge smaller images.
 
 ## Changelog
 
+### 1.2 - 2026-08-28
+
+- **New patch: `fix-wifi-network-shell-quoting`.** Shell-quote connect-time `wpa_cli` SSID/PSK 
+  values so spaces and shell metacharacters remain literal.
+  
+- **New patch: `skip-inactive-theme-configs`.** Inactive themes no longer have their 
+  configuration parsed at startup.
+
+- **New patch: `patch-context-menu-selection-background`.** A theme may supply
+  `skin/bg-list-popup-s.png` to style the selection highlight in popup and context menus.
+
+- **New patch: `fix-recent-preview-paths`.** Preview for items in Recents should always work, 
+  even if we start a game from Search.
+
+- **New patch: `fix-search-favourite-status`.** Favorite handling for items in Search is fixed.
+
+- **New patch: `fix-rom-rebuild-path-safety`.** Harden recursive scan-based `cache6.db`.
+
+- **New theme setting: `gamelist.iconLeftMargin`.** A single absolute theme-author control
+  for the game/folder icon left margin.
+
+- **Wide game-icon spacers.** A wide `skin/icon-game.png` is now treated as a deliberate 
+  horizontal spacer with scroll support.
+
+- **Creating a Favorite folder left the selection in the wrong place.** After a folder is
+  successfully created, the list selection now lands on the new folder.
+
+- **ROM-list edge wraps no longer briefly expose unloaded destination rows.** Added a 
+  60 ms readiness guard. The resolved forward/backward async-loader bodies are also 
+  provenance-checked directly before publication.
+
+- **Game-list right padding is now consistent between static and scrolling titles.** Tagged 
+  folder, game, and no-icon rows share one row-count-aware right edge derived from the real 
+  destination surface.
+
+
+- **Titles that fit could still scroll.** The game-list marquee could arm on a title short
+  enough to fit, most visibly right after a selection change while artwork was still loading. 
+  Titles that fit no longer scroll.
+
+- **Very small title-scroll idle values behaved erratically.** `idle` values below 10 ms are
+  clamped to 10 ms (upper limit unchanged at 30000 ms). Zero or negative still disables
+  scrolling.
+
+- **Popup windows could reappear as an empty page.** A popup or confirmation window open when
+  MainUI handed off to an external application could be written to the saved UI state and then 
+  restored as an ordinary empty page carrying the popup's title.
+
+- **Settings page could lose its title after a handoff.** A Settings window saved without a
+  resolved title is now restored with its correct title.
+
+- **A non-active theme could change the active theme's appearance.** Theme settings added by
+  these patches are now staged per theme and applied only on an exact active-theme path
+  match, with a reset to defaults first. 
+
+- **Hot-path development logging extended.** The suppression selector now also removes 
+  `TextMenu::freeListItem` per-row/final teardown output.
+
+- **Favorite Game Details thumbnails no longer depend on a non-stock `imgpath` field.** Folder-aware
+  Favorite `GameAction`s use the source emulator image directory whenever the Favorite record does not
+  provide an explicit image path.
+
+- **Recent thumbnail/lifetime hardening completed.** The list preview, initial RIGHT-open detail path,
+  and Up/Down detail refresh share one explicit-PNG-or-source-directory rule. 
+
+- **Theme setting `gamelist.bold: false` will now fully work.** 
+
+- **Improved documentation for theme authors.**
+
+- **Crash-regression checks strengthened.**
+
 ### 1.1 - 2026-08-21
 
 - **Configurable Settings menu via `main-menu.json`.** Control the visibility and order of `shutdown`, 
@@ -4433,14 +5093,14 @@ reference hashes remain accepted inputs.
 Validated output,
 
 ```text
-MainUI-283-clean & MainUI-283-expert, bytes: 1,647,328
-sha256sum: 91baf954d72cb8eceacd95acf461b686100d5292acf524adcbf90bbf106f7b20
+MainUI-283-clean & MainUI-283-expert, bytes: 1,653,820
+sha256sum: af6a118c566598bac0450a22c50e3ac16f46f1ee5f9fa3ac8cb597092354e293
 
-MainUI-285-clean & MainUI-285-expert, bytes: 1,647,328
-sha256sum: f77776955c47f4104945aed42deb7a2356a2bbcd7eb6464d1ca9bb57fac21fb6
+MainUI-285-clean & MainUI-285-expert, bytes: 1,653,820
+sha256sum: 7d8a73d0a18f5a4742e2c4c57f1e2daf189494c4e1e72c141da5118e33e7c597
 
-MainUI-354-clean & MainUI-354-expert, bytes: 1,647,328
-sha256sum: bb3c08deef0810595b217285db5a8aed47380fdb6f22ec6b0a71376fb59716d0
+MainUI-354-clean & MainUI-354-expert, bytes: 1,653,820
+sha256sum: 801b26fe28e5cf314e2125036f17ca974e16bfa0bceac556cccdb16420cbd20e
 ```
 > [!NOTE]
 > The patcher normalizes the clean/expert difference, so both variants produce identical output.
