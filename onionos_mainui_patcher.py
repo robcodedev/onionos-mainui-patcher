@@ -172,9 +172,11 @@ Core ROM-list features:
       Home/End game-list action.
 
   show-gamelist-metadata-in-game-details
-      Read genre, rating and description only from immediate-directory
-      gamelist.xml. MainUI's stock miyoogamelist.xml database-generation path
-      remains separate and unchanged by this metadata feature. Bounded path-to-offset indexes are built lazily
+      Read genre, rating and description from the selected ROM's immediate
+      gamelist.xml first. For ROMs below the standard /Roms/<system>/ root,
+      fall back to that system-root gamelist.xml using the ROM-relative path.
+      MainUI's stock miyoogamelist.xml database-generation path remains separate
+      and unchanged by this metadata feature. Bounded path-to-offset indexes are built lazily
       and retained in a sixteen-entry, full-XML-path LRU cache with a 2 MiB
       dynamic index-memory budget and a 256 KiB per-index ceiling. XML size and mtime are checked when a new
       detail lookup opens; missing paths are negatively cached but still statted.
@@ -719,7 +721,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MINIMUM_PYTHON = (3, 10)
-PROGRAM_VERSION = "1.2"
+PROGRAM_VERSION = "1.3"
 
 if sys.version_info < MINIMUM_PYTHON:
     raise SystemExit(
@@ -10179,7 +10181,7 @@ struct RecentRemoveContext {
     void *(*base_action_dtor_)(void *);
     void *(*item_ctor_)(void *, const char *, void *, void *, i32);
     void (*item_dtor_)(void *);
-    i32 (*list_add_)(void *, void *);
+    void (*list_add_)(void *, void *);
     const char *(*translate_)(i32);
     const char *(*string_c_str_)(const void *);
     i32 (*strcmp_)(const char *, const char *);
@@ -10348,10 +10350,7 @@ __attribute__((visibility("default"))) i32 recent_remove_add_item(
     label = c->translate_(52);
     if (!label || !label[0]) label = remove_fallback;
     c->item_ctor_(item, label, 0, a, 1);
-    if (!c->list_add_(menu, item)) {
-        c->item_dtor_(item);
-        return 0;
-    }
+    c->list_add_(menu, item);
     return 1;
 }
 
@@ -10382,34 +10381,32 @@ llvm-objcopy -O binary --only-section=.text \
   recent_remove_patch.elf recent_remove_patch.bin
 '''
 RECENT_REMOVE_CORE = bytes.fromhex(
-    '000050e31eff2f0130482de9104090e5000054e30f00000a141090e5502094e5000051e3002080e50400000a602094e50050a0e10100a0e132ff2fe1'
-    '0500a0e10c2094e50010a0e3141080e50040a0e132ff2fe10400a0e13048bde81eff2fe130482de90040a0e1000050e310509415000055130100001a'
-    '0400a0e13088bde8140094e5501095e5000050e3001084e50100000a601095e531ff2fe10c1095e50000a0e3140084e50400a0e131ff2fe1042095e5'
-    '0400a0e11c10a0e332ff2fe10400a0e13088bde8000050e30900000af04f2de90cd04de2106090e50040a0e1000056e314b0941500005b130300001a'
-    '0cd08de2f04fbde80100a0e31eff2fe118a094e501005ae30700001a282096e50b10a0e1300096e532ff2fe10070a0e1010057e34e0000aaf0ffffea'
-    '300096e5000050e34700000a0010dbe5000051e34400000a341096e531ff2fe1301096e5382096e508008de50100a0e132ff2fe13c2096e504108de2'
-    '04008de508008de232ff2fe1000050e33600000a08908de2115702e30f0000ea242096e50b10a0e132ff2fe1000050e35200000a402096e50900a0e1'
-    '0010a0e30070a0e332ff2fe13c2096e504108de20900a0e132ff2fe1000050e32400000a015055e22100000a441096e50900a0e131ff2fe1000050e3'
-    'edffff0a03005ae31500000a02005ae3e9ffff1a202096e5181080e20080a0e10100a0e132ff2fe10820a0e1000050e30800000a242096e50b10a0e1'
-    '0070a0e132ff2fe10010a0e10700a0e10820a0e1000051e3d3ffff0a201096e5480082e2000000ea201096e531ff2fe1000050e3ccffff1ad0ffffea'
-    '0070a0e3010057e3a2ffffbadc22c6e10300a0e132ff2fe1080094e5000050e39cffff0a0c1094e5000051e36c2096150000521397ffff0af83090e5'
-    '000053e3fc7090150000571392ffff0a030057e190ffff3a036047e0435c09e3050056e18cffff8a070053e18affff0a0060a0e3065093e7010055e1'
-    '1200000a046086e2065083e0070055e1f8ffff1a81ffffea482096e50000a0e308108de200008de50d00a0e132ff2fe1300096e54c2096e500109de5'
-    '32ff2fe10170a0e3010057e3d1ffffaa73ffffea4611b0e171ffff4a32ff2fe16fffffeaf04b2de908d04de2000050e30060a0e30170a01100005113'
-    '0400000a000052e30240a0e10350a011000053130200001a0600a0e108d08de2f08bbde8001095e50080a0e11c00a0e331ff2fe1000050e3f6ffff0a'
-    '081094e50090a0e1082095e532ff2fe1500095e50010a0e3000089e50320a0e30c0094e5080089e50c7089e5105089e5141089e5180097e5182089e5'
-    '000050e3542095e500109015020051e10500001a201095e5240080e231ff2fe10060a0e10100a0e30a0000ea582095e5020051e10c00001a080090e5'
-    '000050e35300000a201095e5480080e231ff2fe10060a0e10200a0e3180089e5000056e30000d615000050130700001a201095e50700a0e131ff2fe1'
-    '0060a0e10300a0e3000056e3180089e53200000a641095e50600a0e131ff2fe1011001e3011040e0010a71e32b00003a014080e25c1095e50400a0e1'
-    '31ff2fe1000050e32500000a683095e50610a0e10420a0e10070a0e133ff2fe1001095e57400a0e3147089e531ff2fe1000050e32c00000a1c1095e5'
-    '0070a0e13400a0e331ff2fe1000050e30160a0e30010a0110000d0150020a0e30930a0e1000050130700a0e1bc109f05104095e501108f0000608de5'
-    '34ff2fe1182095e50800a0e10710a0e132ff2fe1000050e395ffff1a141095e50700a0e131ff2fe11f0000ea104099e50060a0e3146089e5000054e3'
-    '8cffff0a500094e50c1094e5000089e50900a0e131ff2fe1042094e50900a0e11c10a0e332ff2fe182ffffea0200a0e3180089e5b2ffffea104099e5'
-    '000054e30a00000a140099e5501094e5000050e3001089e50100000a601094e531ff2fe10c1094e50060a0e3146089e5e7ffffea0060a0e36fffffea'
-    'b800000052656d6f76652066726f6d206c69737400'
+    '000050e31eff2f0130482de9104090e5000054e30f00000a141090e5502094e5000051e3002080e50400000a602094e50050a0e10100a0e132ff2fe10500a0e1'
+    '0c2094e50010a0e3141080e50040a0e132ff2fe10400a0e13048bde81eff2fe130482de90040a0e1000050e310509415000055130100001a0400a0e13088bde8'
+    '140094e5501095e5000050e3001084e50100000a601095e531ff2fe10c1095e50000a0e3140084e50400a0e131ff2fe1042095e50400a0e11c10a0e332ff2fe1'
+    '0400a0e13088bde8000050e30900000af04f2de90cd04de2106090e50040a0e1000056e314b0941500005b130300001a0cd08de2f04fbde80100a0e31eff2fe1'
+    '18a094e501005ae30700001a282096e50b10a0e1300096e532ff2fe10070a0e1010057e34e0000aaf0ffffea300096e5000050e34700000a0010dbe5000051e3'
+    '4400000a341096e531ff2fe1301096e5382096e508008de50100a0e132ff2fe13c2096e504108de204008de508008de232ff2fe1000050e33600000a08908de2'
+    '115702e30f0000ea242096e50b10a0e132ff2fe1000050e35200000a402096e50900a0e10010a0e30070a0e332ff2fe13c2096e504108de20900a0e132ff2fe1'
+    '000050e32400000a015055e22100000a441096e50900a0e131ff2fe1000050e3edffff0a03005ae31500000a02005ae3e9ffff1a202096e5181080e20080a0e1'
+    '0100a0e132ff2fe10820a0e1000050e30800000a242096e50b10a0e10070a0e132ff2fe10010a0e10700a0e10820a0e1000051e3d3ffff0a201096e5480082e2'
+    '000000ea201096e531ff2fe1000050e3ccffff1ad0ffffea0070a0e3010057e3a2ffffbadc22c6e10300a0e132ff2fe1080094e5000050e39cffff0a0c1094e5'
+    '000051e36c2096150000521397ffff0af83090e5000053e3fc7090150000571392ffff0a030057e190ffff3a036047e0435c09e3050056e18cffff8a070053e1'
+    '8affff0a0060a0e3065093e7010055e11200000a046086e2065083e0070055e1f8ffff1a81ffffea482096e50000a0e308108de200008de50d00a0e132ff2fe1'
+    '300096e54c2096e500109de532ff2fe10170a0e3010057e3d1ffffaa73ffffea4611b0e171ffff4a32ff2fe16fffffeaf04b2de908d04de2000050e30060a0e3'
+    '0170a011000051130400000a000052e30240a0e10350a011000053130200001a0600a0e108d08de2f08bbde8001095e50080a0e11c00a0e331ff2fe1000050e3'
+    'f6ffff0a081094e50090a0e1082095e532ff2fe1500095e50010a0e3000089e50320a0e30c0094e5080089e50c7089e5105089e5141089e5180097e5182089e5'
+    '000050e3542095e500109015020051e10500001a201095e5240080e231ff2fe10060a0e10100a0e30a0000ea582095e5020051e10c00001a080090e5000050e3'
+    '4d00000a201095e5480080e231ff2fe10060a0e10200a0e3180089e5000056e30000d615000050130700001a201095e50700a0e131ff2fe10060a0e10300a0e3'
+    '000056e3180089e52c00000a641095e50600a0e131ff2fe1011001e3011040e0010a71e32500003a014080e25c1095e50400a0e131ff2fe1000050e31f00000a'
+    '683095e50610a0e10420a0e10070a0e133ff2fe1001095e57400a0e3147089e531ff2fe1000050e32600000a1c1095e50070a0e13400a0e331ff2fe1000050e3'
+    '0160a0e30010a0110000d0150020a0e30930a0e1000050130700a0e1a4109f05104095e501108f0000608de534ff2fe1182095e50800a0e10710a0e10c0000ea'
+    '104099e50060a0e3146089e5000054e392ffff0a500094e50c1094e5000089e50900a0e131ff2fe1042094e50900a0e11c10a0e332ff2fe188ffffea0200a0e3'
+    '180089e5b8ffffea104099e5000054e30a00000a140099e5501094e5000050e3001089e50100000a601094e531ff2fe10c1094e50060a0e3146089e5e7ffffea'
+    '0060a0e375ffffeaa000000052656d6f76652066726f6d206c69737400'
 )
 RECENT_REMOVE_CONTEXT_SIZE = 112
-RECENT_REMOVE_CORE_SHA256 = "360a5e68ca1a6f47a0653ef05716e5c4bafb6923c6d23d92b57939d4e676ea30"
+RECENT_REMOVE_CORE_SHA256 = "cc11b01eb49c02fccfd8117049c89eb384a27ace3c278c44e3826236e96bfa11"
 RECENT_REMOVE_SYMBOL_OFFSETS = {'recent_remove_regular_dtor': 0, 'recent_remove_deleting_dtor': 96, 'recent_remove_execute': 200, 'recent_remove_add_item': 816}
 RECENT_CONTEXT_MENU_HOOK_VA = 0x00030BD4
 RECENT_CONTEXT_MENU_RETURN_VA = 0x00030BD8
@@ -10440,6 +10437,336 @@ def verify_recent_remove_flat_symbol_offsets(core: bytes, symbols: dict[str, int
         if actual != word:
             raise ValueError(
                 f'Recents flat-core symbol offset mismatch for {name}: '
+                f'word {actual:#010x}, expected {word:#010x}')
+
+
+
+CONSOLE_REFRESH_C_SOURCE = r'''
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 robcodedev
+ */
+typedef unsigned int u32;
+typedef signed int i32;
+typedef unsigned char u8;
+
+typedef struct ConsoleRefreshContext ConsoleRefreshContext;
+typedef struct ConsoleRefreshAction {
+    u32 *vptr;
+    i32 type;
+    void *window;
+    void *config;
+    ConsoleRefreshContext *context;
+} ConsoleRefreshAction;
+
+struct ConsoleRefreshContext {
+    void *(*op_new_)(u32);
+    void (*op_delete_sized_)(void *, u32);
+    void *(*base_action_ctor_)(void *, i32);
+    void *(*base_action_dtor_)(void *);
+    void *(*item_ctor_)(void *, const char *, void *, void *, i32);
+    void (*item_dtor_)(void *);
+    void (*list_add_)(void *, void *);
+    const char *(*translate_)(i32);
+    const char *(*string_c_str_)(const void *);
+    i32 (*unlink_)(const char *);
+    void *(*opendir_)(const char *);
+    void *(*readdir_)(void *);
+    i32 (*closedir_)(void *);
+    void *(*confirm_action_ctor_)(void *, i32, void *);
+    u32 *custom_action_vptr;
+    void (*invalidate_count_cache_)(void);
+};
+
+#define SYSTEM_ROMPATH_OFF 0x78u
+#define SYSTEM_ROW_CONFIG_OFF 0x44u
+#define SYSTEM_ROW_TYPE_OFF 0x4Cu
+#define DB_CAP 768u
+
+static const char refresh_fallback[] = "Refresh roms";
+static const char cache_prefix[] = "_cache";
+
+static i32 lower_ascii(i32 c) {
+    if (c >= 'A' && c <= 'Z') return c + ('a' - 'A');
+    return c;
+}
+
+static i32 base_is_search(const char *base, u32 n) {
+    static const char name[] = "search";
+    u32 i;
+    if (n != 6u) return 0;
+    for (i = 0; i < 6u; ++i) {
+        if (lower_ascii((u8)base[i]) != (i32)(u8)name[i]) return 0;
+    }
+    return 1;
+}
+
+static i32 has_roms_segment(const char *s, u32 n) {
+    u32 i;
+    for (i = 0; i + 5u <= n; ++i) {
+        if (lower_ascii((u8)s[i + 0]) == 'r' &&
+            lower_ascii((u8)s[i + 1]) == 'o' &&
+            lower_ascii((u8)s[i + 2]) == 'm' &&
+            lower_ascii((u8)s[i + 3]) == 's' &&
+            s[i + 4] == '/') return 1;
+    }
+    return 0;
+}
+
+static void *selected_config(void *event, ConsoleRefreshContext *c) {
+    void *source, *item, *cfg;
+    void **begin, **end;
+    i32 idx, event_type, row_type;
+    (void)c;
+    if (!event) return 0;
+    event_type = *(i32 *)((u8 *)event + 8);
+    if (event_type != 1 && event_type != 16) return 0;
+    source = *(void **)((u8 *)event + 12);
+    if (!source) return 0;
+
+    /* Games console selectors are TextMenu-derived objects.  Their current
+     * row index is stored at +0x0c and rows are owned by the pointer vector
+     * at +0x48.  MainUI's stock Games builder appends every 128-byte system
+     * row through that exact vector, so do not call a subclass virtual slot
+     * here merely to recover the selected row. */
+    idx = *(i32 *)((u8 *)source + 0x0c);
+    if (idx < 0) return 0;
+    begin = *(void ***)((u8 *)source + 0x48);
+    end = *(void ***)((u8 *)source + 0x4c);
+    if (!begin || !end || end < begin) return 0;
+    if ((u32)idx >= (u32)(end - begin)) return 0;
+    item = begin[idx];
+    if (!item) return 0;
+
+    row_type = *(i32 *)((u8 *)item + SYSTEM_ROW_TYPE_OFF);
+    if ((event_type == 1 && row_type != 5) ||
+        (event_type == 16 && row_type != 17)) return 0;
+    cfg = *(void **)((u8 *)item + SYSTEM_ROW_CONFIG_OFF);
+    return cfg;
+}
+
+static i32 config_cache_parts(void *cfg, ConsoleRefreshContext *c,
+                              const char **path_out, u32 *path_len_out,
+                              const char **base_out, u32 *base_len_out) {
+    const char *path, *base;
+    u32 n, i;
+    if (!cfg || !c) return 0;
+    path = c->string_c_str_((u8 *)cfg + SYSTEM_ROMPATH_OFF);
+    if (!path || !path[0]) return 0;
+    for (n = 0; path[n] && n < 500u; ++n) {}
+    if (!path[n] && n == 0u) return 0;
+    if (n >= 500u && path[n]) return 0;
+    while (n && path[n - 1] == '/') --n;
+    if (!n || !has_roms_segment(path, n)) return 0;
+    base = path;
+    for (i = 0; i < n; ++i) if (path[i] == '/') base = path + i + 1u;
+    if (base >= path + n) return 0;
+    if (base_is_search(base, (u32)((path + n) - base))) return 0;
+    *path_out = path;
+    *path_len_out = n;
+    *base_out = base;
+    *base_len_out = (u32)((path + n) - base);
+    return 1;
+}
+
+__attribute__((visibility("default"))) i32 console_refresh_eligible(
+        void *event, ConsoleRefreshContext *c) {
+    const char *path, *base;
+    u32 path_len, base_len;
+    void *cfg = selected_config(event, c);
+    return config_cache_parts(cfg, c, &path, &path_len, &base, &base_len);
+}
+
+__attribute__((visibility("default"))) void *console_refresh_regular_dtor(ConsoleRefreshAction *a) {
+    ConsoleRefreshContext *c;
+    if (!a || !(c = a->context)) return a;
+    a->vptr = c->custom_action_vptr;
+    c->base_action_dtor_(a);
+    return a;
+}
+
+__attribute__((visibility("default"))) void *console_refresh_deleting_dtor(ConsoleRefreshAction *a) {
+    ConsoleRefreshContext *c;
+    if (!a || !(c = a->context)) return a;
+    console_refresh_regular_dtor(a);
+    c->op_delete_sized_(a, sizeof(*a));
+    return a;
+}
+
+__attribute__((visibility("default"))) i32 console_refresh_execute(ConsoleRefreshAction *a, u32 original_r1) {
+    ConsoleRefreshContext *c;
+    const char *path, *base, *name;
+    void *dir, *ent;
+    u32 path_len, base_len, i, j, name_len, p;
+    char db[DB_CAP];
+    (void)original_r1;
+    if (!a || !(c = a->context)) return 1;
+    if (!config_cache_parts(a->config, c, &path, &path_len, &base, &base_len)) return 1;
+    /* Stock Refresh all roms enters removeAllDBFiles(), whose patched prologue
+     * invalidates the process-local ROM COUNT cache.  Per-console refresh must
+     * do the same before removing its cache files or changed ROM sets can reuse
+     * a stale positive row count and leave rows stuck as LOADING. */
+    if (c->invalidate_count_cache_) c->invalidate_count_cache_();
+    dir = c->opendir_(path);
+    if (!dir) return 1;
+    while ((ent = c->readdir_(dir)) != 0) {
+        name = (const char *)((u8 *)ent + 11u);
+        if (!name[0] || (name[0] == '.' &&
+            (!name[1] || (name[1] == '.' && !name[2])))) continue;
+        for (i = 0; i < base_len; ++i) {
+            if (!name[i] || name[i] != base[i]) break;
+        }
+        if (i != base_len) continue;
+        for (j = 0; j + 1u < sizeof(cache_prefix); ++j) {
+            if (name[base_len + j] != cache_prefix[j]) break;
+        }
+        if (j + 1u != sizeof(cache_prefix)) continue;
+        for (name_len = 0; name[name_len] && name_len < 255u; ++name_len) {}
+        if (name[name_len]) continue;
+        if (path_len + 1u + name_len + 1u > DB_CAP) continue;
+        p = 0;
+        for (i = 0; i < path_len; ++i) db[p++] = path[i];
+        db[p++] = '/';
+        for (i = 0; i < name_len; ++i) db[p++] = name[i];
+        db[p] = 0;
+        c->unlink_(db);
+    }
+    c->closedir_(dir);
+    return 1;
+}
+
+__attribute__((visibility("default"))) i32 console_refresh_add_item(
+        void *popup_menu, void *event, ConsoleRefreshContext *c) {
+    ConsoleRefreshAction *a;
+    void *item, *cfg;
+    const char *label, *path, *base;
+    u32 path_len, base_len;
+    if (!popup_menu || !event || !c) return 0;
+    cfg = selected_config(event, c);
+    if (!config_cache_parts(cfg, c, &path, &path_len, &base, &base_len)) return 0;
+    a = (ConsoleRefreshAction *)c->op_new_(sizeof(*a));
+    if (!a) return 0;
+    c->base_action_ctor_(a, 1);
+    a->vptr = c->custom_action_vptr;
+    a->window = *(void **)((u8 *)event + 12);
+    a->config = cfg;
+    a->context = c;
+    item = c->op_new_(116);
+    if (!item) {
+        console_refresh_deleting_dtor(a);
+        return 0;
+    }
+    label = c->translate_(27);
+    if (!label || !label[0]) label = refresh_fallback;
+    c->item_ctor_(item, label, 0, a, 1);
+    c->list_add_(popup_menu, item);
+    return 1;
+}
+
+#ifndef HOST_TEST
+_Static_assert(sizeof(ConsoleRefreshAction) == 20, "ConsoleRefreshAction size");
+_Static_assert(sizeof(ConsoleRefreshContext) == 64, "ConsoleRefreshContext size");
+#endif
+'''
+
+CONSOLE_REFRESH_LINKER_SCRIPT = r'''
+SECTIONS {
+  . = 0;
+  .text : { *(.text*) *(.rodata*) }
+  /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.comment*) *(.note*) *(.ARM.attributes*) }
+}
+'''
+CONSOLE_REFRESH_BUILD_RECIPE = r'''
+clang --target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard \
+  -mfpu=vfpv3-d16 -marm -O2 -ffreestanding -fno-builtin \
+  -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
+  -fvisibility=hidden -ffunction-sections -fdata-sections \
+  -c console_refresh_patch.c -o console_refresh_patch.o
+ld.lld -m armelf_linux_eabi -T console_refresh_patch.ld --gc-sections \
+  -u console_refresh_regular_dtor -u console_refresh_deleting_dtor \
+  -u console_refresh_execute -u console_refresh_add_item -u console_refresh_eligible \
+  -o console_refresh_patch.elf console_refresh_patch.o
+llvm-objcopy -O binary --only-section=.text \
+  console_refresh_patch.elf console_refresh_patch.bin
+'''
+CONSOLE_REFRESH_CORE = bytes.fromhex(
+    '00482de918d04de20020a0e10000a0e3000052e30e00000a083092e5100053e3010053130a00001a0c2092e5000052e30700000a0ce092e500005ee30400004a'
+    '48c092e500005ce34c209215000052130700001a08308de210208de2f020cde114208de20c308de2150000eb18d08de20088bde80c2052e0f5ffff3a4221a0e1'
+    '02005ee1f2ffff2a0e219ce7000052e3efffff0a4cc092e5010053e30100001a05005ce3eaffff1a100053e30200001a11005ce344009205e5ffffea440092e5'
+    'e3ffffeaf04f2de904d04de2000050e30040a0e3000051130800000a201091e5780080e203b0a0e102a0a0e131ff2fe1000050e30010d015000051130200001a'
+    '0400a0e104d08de2f08fbde80030a0e30310d0e7012083e22331a0e17c0053e30200008a000051e30230a0e1f7ffff1a015042e20040a0e32531a0e17c0053e3'
+    '0030a0e301300083000051e301100013010052e3e9ffff0a011013e0e7ffff1a056080e0011056e52f0051e30200001a015055e2f9ffff1ae0ffffea0510a0e1'
+    '0090a0e1ce0100eb000050e3dbffff0a0910a0e10000a0e30970a0e10120a0e10030f2e7010080e22f0053e301708202050050e1f8ffff3a0040a0e3060057e1'
+    'ceffff2a070041e0058080e00700a0e10810a0e1e60100eb000050e3c7ffff1a2c009de50140a0e300508be500908ae5008080e528009de5007080e5bfffffea'
+    '000050e310109015000051130000001a1eff2fe110402de90c2091e50040a0e1381091e5001080e532ff2fe10400a0e11040bde81eff2fe1000050e31eff2f01'
+    '30482de9105090e5000055e30900000a0c1095e50040a0e1382095e5002080e531ff2fe1042095e50400a0e11410a0e332ff2fe10400a0e13048bde81eff2fe1'
+    '000050e30f00000af04f2de9c5df4de2107090e5000057e30c009015000050130600000a201097e5780080e231ff2fe1000050e30010d015000051130300001a'
+    'c5df8de2f04fbde80100a0e31eff2fe10010e0e3012080e0011081e20120d2e52131a0e17c0053e30100008a000052e3f7ffff1a0060a0e37c0053e301600083'
+    '000052e301200013000051e3ebffff0a022016e0e9ffff1a00bd0fe3035c41e2ffbf4fe3058080e0ff12d8e52f0051e30300001a015045e20b0055e1f8ffff1a'
+    'deffffea10008de5034c85e210009de50410a0e15a0100eb10109de5000050e3d6ffff0a01c084e00020a0e30160a0e10130a0e10200f3e7012082e22f0050e3'
+    '01608302040052e1f8ffff3a0c0056e1caffff2a060041e0050080e0031c80e20600a0e1720100eb000050e3c3ffff1a3c0097e5000050e30000000a30ff2fe1'
+    '281097e510009de531ff2fe1000050e3baffff0a2c1097e50c008de531ff2fe1000050e36c00000a061048e000a0a0e1039c81e2000066e2010059e308008de5'
+    '0190a093090000ea0010a0e30210c0e7241097e531ff2fe12c1097e50c009de531ff2fe100a0a0e1000050e35a00000a0ae0a0e10b20fee5000052e3f5ffff0a'
+    '2e0052e30600001a0c20dae5000052e3f0ffff0a2e0052e30d20da0500005203ecffff0a0020a0e30230dee7000053e30600000a0210d6e7010053e10300001a'
+    '012082e2020059e1f6ffff1a0920a0e1021086e0011048e00b0051e1ddffff1a08109de510009de501108ae0001081e0052081e00b13d2e55f0051e30c13d205'
+    '63005103d3ffff1a0d13d2e5610051e30e13d20563005103ceffff1a0f13d2e5680051e31013d20565005103c9ffff1a0bc0a0e30020a0e301108ce204108de5'
+    '0b104ce20c30dae7fe0051e304109de50200a0e1012082e20200008a000053e301c0a0e1f3ffff1a000053e3b9ffff1a01a0a0e1021085e0032ce0e3020051e1'
+    'b4ffff3a10209de500c0a0e114008de20030a0e30b0055e10400000a0310d2e70310c0e7013083e2040053e1faffff3a012083e22f10a0e30c005ae30310c0e7'
+    'a0ffff0a0110dee401c05ce20210c0e7012082e2faffff1a9affffea301097e50c009de531ff2fe144ffffeaf04f2de904d04de20090a0e10000a0e3000059e3'
+    '0200000a000051e3000052130100001a04d08de2f08fbde8083091e5100053e301005313f9ffff1a0c5091e5000055e3f6ffff0a0c7095e5000057e3f3ffff4a'
+    '486095e5000056e34c50951500005513eeffff0a065055e0ecffff3a4551a0e1050057e1e9ffff2a077196e7000057e3e6ffff0a4c6097e5010053e30100001a'
+    '050056e3e1ffff1a100053e30100001a110056e3ddffff1a446097e5000056e3daffff0a01b0a0e1201092e5780086e202a0a0e131ff2fe1000050e35400000a'
+    '0010a0e10000d0e5000050e30000a0e3ceffff0a0030d1e7014080e22001a0e17c0050e30200008a000053e30400a0e1f7ffff1a012044e20000a0e32271a0e1'
+    '7c0057e30070a0e301700083000053e301300013010054e3bcffff0a033017e0baffff1a023081e0017053e52f0057e30200001a012052e2f9ffff1ab3ffffea'
+    '050052e3b1ffff3a0040a0e3040000ea067080e2014080e20000a0e3020057e1aaffff8a0470d1e70400a0e1414047e21a0054e320708733720057e3f3ffff1a'
+    '004081e00170d4e5415047e21a0055e3207087336f0057e3ecffff1a0270d4e5415047e21a0055e3207087336d0057e3e6ffff1a0370d4e5415047e21a0055e3'
+    '20708733730057e30470d4052f005703deffff1a0040a0e30100a0e10170a0e10450f7e7014084e22f0055e301008702020054e1f8ffff3a030050e10400002a'
+    '001041e0021081e0690000eb000050e30200000a0000a0e304d08de2f08fbde800109ae51400a0e331ff2fe1000050e3f7ffff0a08209ae50110a0e30080a0e1'
+    '32ff2fe138009ae5082088e2000088e50c009be500109ae5410482e87400a0e331ff2fe1000050e31700000a1c109ae50060a0e11b00a0e331ff2fe1000050e3'
+    '0020a0e30010a0110000d0150830a0e1000050130100a0e360109f0510709ae501108f0000008de50600a0e137ff2fe118209ae50900a0e10610a0e132ff2fe1'
+    '0100a0e304d08de2f08fbde8104098e5000054e3ceffff0a0c1094e5380094e5000088e50800a0e131ff2fe1042094e50800a0e11410a0e332ff2fe1c4ffffea'
+    'b40100000020a0e3050051e32600003a00482de90030a0e3030000ea06208ce201308ce2010052e11d00008a03c0a0e10330d0e7412043e21a0052e320308333'
+    '720053e3f4ffff1a0ce080e00120dee5413042e21a0053e3202082336f0052e3edffff1a0220dee5413042e21a0053e3202082336d0052e3e7ffff1a0320dee5'
+    '413042e21a0053e320208233730052e30420de052f005203dfffff1a0120a0e3000000ea0020a0e30048bde80200a0e11eff2fe10020a0e10000a0e3060051e3'
+    '2400001a0010d2e5413041e21a0053e320108133730051e31e00001a0110d2e5413041e21a0053e320108133650051e31800001a0210d2e5413041e21a0053e3'
+    '20108133610051e31200001a0310d2e5413041e21a0053e320108133720051e30c00001a0410d2e5413041e21a0053e320108133630051e31eff2f110500d2e5'
+    '411040e21a0051e320008033680040e2100f6fe1a002a0e11eff2fe15265667265736820726f6d7300'
+)
+CONSOLE_REFRESH_CONTEXT_SIZE = 64
+CONSOLE_REFRESH_CORE_SHA256 = "d7df4852a7e1363fcae560848d0fb8232fc1cafc73bf2b3b284457f1ab0eda95"
+CONSOLE_REFRESH_SYMBOL_OFFSETS = {
+    'console_refresh_eligible': 0x000,
+    'console_refresh_regular_dtor': 0x200,
+    'console_refresh_deleting_dtor': 0x238,
+    'console_refresh_execute': 0x280,
+    'console_refresh_add_item': 0x5AC,
+}
+CONSOLE_REFRESH_MENU_HOOK_VA = 0x000306F4
+CONSOLE_REFRESH_MENU_RETURN_VA = 0x000306F8
+CONSOLE_REFRESH_BG_HOOK_VA = 0x00030714
+CONSOLE_REFRESH_BG_RETURN_VA = 0x0003071C
+CONSOLE_REFRESH_BG1_VA = 0x001530E8
+CONSOLE_REFRESH_BG2_VA = 0x001530A0
+CONSOLE_REFRESH_ACTION_VTABLE_TEMPLATE_VA = 0x00153F2C
+CONSOLE_REFRESH_GAME_ACTION_VPTR = 0x00153FA4
+CONSOLE_REFRESH_SELECTED_INDEX_VA = 0x000395A4
+
+def verify_console_refresh_flat_symbol_offsets(core: bytes,
+                                               symbols: dict[str, int]) -> None:
+    expected = {
+        'console_refresh_eligible': 0xE92D4800,
+        'console_refresh_regular_dtor': 0xE3500000,
+        'console_refresh_deleting_dtor': 0xE3500000,
+        'console_refresh_execute': 0xE3500000,
+        'console_refresh_add_item': 0xE92D4FF0,
+    }
+    for name, word in expected.items():
+        off = symbols.get(name)
+        if off is None or off < 0 or off + 4 > len(core) or off & 3:
+            raise ValueError(f'invalid console-refresh flat-core symbol offset: {name}')
+        actual = struct.unpack_from('<I', core, off)[0]
+        if actual != word:
+            raise ValueError(
+                f'console-refresh flat-core symbol offset mismatch for {name}: '
                 f'word {actual:#010x}, expected {word:#010x}')
 
 # Corresponding source and reproducible build recipe for the injected GPL core.
@@ -10862,16 +11189,51 @@ static int make_xml_path(MetadataState *s, MetadataContext *c, const char *full,
     return 1;
 }
 
-static int derive_paths(void *self, MetadataState *s, MetadataContext *c) {
+static int derive_immediate_paths(void *self, MetadataState *s, MetadataContext *c) {
     const char *full = c->c_str_((u8 *)self + 0x54u);
     char *slash;
-    u32 size, mtime, mtime_nsec;
     if (!full || !*full) return 0;
     slash = c->strrchr_(full, '/');
     if (!slash || slash == full) return 0;
     if (!make_xml_path(s,c,full,slash,c->xml_name)) return 0;
-    if (!xml_stamp_path(c,s->lookup_xml_path,&size,&mtime,&mtime_nsec)) return 0;
     return copy_string(s->scratch,sizeof(s->scratch),slash+1) != 0;
+}
+
+static int matches_roms_component(const char *p) {
+    static const char name[] = "/roms/";
+    u32 i;
+    for (i=0; name[i]; i++) {
+        if (!p[i] || ascii_to_lower((u8)p[i]) != (u8)name[i]) return 0;
+    }
+    return 1;
+}
+
+/* Standard Onion ROM paths are .../Roms/<system>/... .  The first slash after
+ * <system> is therefore the system-root boundary used by Skraper gamelist.xml. */
+static const char *find_system_root_slash(const char *full) {
+    const char *p = full, *q;
+    while (*p) {
+        if (*p == '/' && matches_roms_component(p)) {
+            q = p + 6;
+            if (!*q) return 0;
+            while (*q && *q != '/') q++;
+            return *q == '/' ? q : 0;
+        }
+        p++;
+    }
+    return 0;
+}
+
+static int derive_system_root_paths(void *self, MetadataState *s, MetadataContext *c) {
+    const char *full = c->c_str_((u8 *)self + 0x54u);
+    const char *root_slash;
+    char *last_slash;
+    if (!full || !*full) return 0;
+    root_slash = find_system_root_slash(full);
+    last_slash = c->strrchr_(full, '/');
+    if (!root_slash || !last_slash || root_slash >= last_slash) return 0;
+    if (!make_xml_path(s,c,full,root_slash,c->xml_name)) return 0;
+    return copy_string(s->scratch,sizeof(s->scratch),root_slash+1) != 0;
 }
 
 /* Build a compact path-to-XML-offset index without retaining the XML file. */
@@ -11192,32 +11554,69 @@ static int read_entry(MetadataState *s, MetadataContext *c, MetadataIndex *m, co
     return 0;
 }
 
+static int cached_candidate(MetadataState *s, MetadataContext *c, const char *rel) {
+    if (!s->current_loaded || s->active_slot >= INDEX_CACHE_MAX) return 0;
+    if (!strings_equal(s->cache[s->active_slot].xml_path,s->lookup_xml_path) ||
+        c->strcasecmp_(s->current_rel_path,rel)!=0) return 0;
+    if (s->wrapped_font != s->font) wrap_all(s,c);
+    return 1;
+}
+
+/* Return 1 for an exact <path> match, 0 when this XML has no matching entry,
+ * and -1 when the XML/index itself is unavailable. */
+static int try_candidate(MetadataState *s, MetadataContext *c, const char *rel) {
+    u32 slot;
+    copy_string(s->current_rel_path,sizeof(s->current_rel_path),rel);
+    s->current_loaded=1;
+    slot=prepare_index(s,c,s->lookup_xml_path);
+    if (slot==INDEX_SLOT_NONE) return -1;
+    s->active_slot=slot;
+    if (!s->cache[slot].record_count) return 0;
+    return read_entry(s,c,&s->cache[slot],s->current_rel_path) ? 1 : 0;
+}
+
 static int ensure_entry(void *self, MetadataState *s, MetadataContext *c) {
     char *rel;
-    u32 slot;
+    int matched;
     int owner_changed = s->owner != (u32)self;
     if (owner_changed) {
         reset_entry(s, c);
         s->owner=(u32)self;
     }
-    if (!derive_paths(self,s,c)) return 0;
+
+    /* Reuse either the immediate-directory hit or the system-root fallback. */
+    if (derive_immediate_paths(self,s,c)) {
+        rel=normalize_rel(s->scratch);
+        if (cached_candidate(s,c,rel))
+            return s->summary_len || s->desc_len;
+    }
+    if (derive_system_root_paths(self,s,c)) {
+        rel=normalize_rel(s->scratch);
+        if (cached_candidate(s,c,rel))
+            return s->summary_len || s->desc_len;
+    }
+
+    reset_entry(s, c);
+    if (!derive_immediate_paths(self,s,c)) return 0;
     rel=normalize_rel(s->scratch);
-    if (s->current_loaded && s->active_slot < INDEX_CACHE_MAX &&
-        strings_equal(s->cache[s->active_slot].xml_path,s->lookup_xml_path) &&
-        c->strcasecmp_(s->current_rel_path,rel)==0) {
-        if (s->wrapped_font != s->font) wrap_all(s,c);
+    matched=try_candidate(s,c,rel);
+    if (matched==1) {
+        wrap_all(s,c);
         return s->summary_len || s->desc_len;
     }
-    reset_entry(s, c);
-    copy_string(s->current_rel_path,sizeof(s->current_rel_path),rel);
-    s->current_loaded=1;
-    slot=prepare_index(s,c,s->lookup_xml_path);
-    if (slot==INDEX_SLOT_NONE) return 0;
-    s->active_slot=slot;
-    if (!s->cache[slot].record_count) return 0;
-    read_entry(s,c,&s->cache[slot],s->current_rel_path);
+
+    /* A local gamelist without this ROM falls back to the Skraper-style
+     * .../Roms/<system>/gamelist.xml using the path relative to that root. */
+    if (derive_system_root_paths(self,s,c)) {
+        rel=normalize_rel(s->scratch);
+        matched=try_candidate(s,c,rel);
+        if (matched==1) {
+            wrap_all(s,c);
+            return s->summary_len || s->desc_len;
+        }
+    }
     wrap_all(s,c);
-    return s->summary_len || s->desc_len;
+    return 0;
 }
 
 static u32 pack_xy(u32 x,u32 y) { return (x&0xffffu)|((y&0xffffu)<<16); }
@@ -11394,136 +11793,187 @@ llvm-objcopy -O binary --only-section=.text \
 # MainUI/libc/SDL service through the context table assembled below, so the
 # release patcher itself needs no compiler or third-party assembler.
 MIYOOGAMELIST_DETAIL_METADATA_CORE = bytes.fromhex(
-    'f04f2de9e4d04de20250a0e1582093e503b0a0e101a0a0e10040a0e132ff2fe10020a0e1200095e5000050e32f00000ae00202e3008085e0000095e5'
-    '78208de5040050e11300000a0500a0e10b10a0e17b0700eb0000a0e30010e0e3900085e5940085e5280085e52c0085e59408c8e55407c8e54407c8e5'
-    '4406c8e54404c8e5004085e5040085e5080085e50c0085e5100085e5141085e530109be5540084e231ff2fe1000050e378209de50070a0110000d015'
-    '000050130c00000a2c209be50700a0e12f10a0e332ff2fe178209de5000050e3070050110400000a60609be5000056e30010d615000051130200001a'
-    '0200a0e1e4d08de2f08fbde828109be5079040e070008de50600a0e131ff2fe1000089e078209de5010080e2a002a0e1100050e3f1ffff8a010059e3'
-    '741d03e3e00001e300e085e001c085e00190a093891f88e2040502e30930a0e10120d7e4013053e20020c5e7010080e2faffff1a2f00a0e36cc08de5'
-    '0900c1e70000d6e568e08de5000050e30b00000a052502e3027085e0012086e2023089e2a332a0e1100053e30400008a0900c7e7019089e20100d2e4'
-    '000050e3f6ffff1a010089e20020a0e30160a0e10020c1e78c208de20300a0e354309be533ff2fe1000050e370009de578209de5c4ffff1a0110d0e5'
-    '74608de5000051e33b00000a6c609de5022c0fe3020080e2ff2f4fe3023086e0000052e3fe13c3e5013082e20400000a021080e00320a0e1fe13d1e5'
-    '000051e3f5ffff1a030086e074709de5133000e30010a0e3fe13c0e5803040e30100a0e30010d6e5092041e2170052e30300008a100213e10100000a'
-    '016086e2f7ffffea2e0051e30200001a0100d6e52f0050e3026086020100d6e42f0050e3fcffff0a040095e5019046e2000050e32200000a140095e5'
-    '0f0050e31f00008a800180e0001385e02401d1e5000050e30e00000a252100e3022081e00710a0e10030d1e5030050e10a00001a0100d2e4011081e2'
-    '000050e3f8ffff1a040000ea6c109de50000a0e30000c1e580ffffea0710a0e10000a0e30010d1e5010050e10600001a240702e324209be5000085e0'
-    '0910a0e132ff2fe1000050e38f00000a0500a0e10b10a0e1c60600eb0070a0e30510a0e108c0a0e19070a1e54474ece50000e0e37c0001e50c00a0e1'
-    '047081e55074e0e558008de50c00a0e11073e0e55c008de50c00a0e10073e0e554008de50c00a0e10072e0e5687001e5647001e58c7001e5887001e5'
-    '847001e5807001e550008de50000d9e564108de50010a0e3000050e30900000a0030a0e3fe2100e3011083e2020053e10300cce70300000a0300d6e7'
-    '0130a0e1000050e3f7ffff1a0100a0e30170cce7419f85e2040085e5250100e3000085e060c08de5080000ea74209de50010a0e30020d2e5020051e1'
-    '2b02000a017087e2090d80e2100057e31400000a871187e0016389e01c1096e5000051e3f6ffff0a2010d6e5000051e3eeffff0a74209de506e0a0e1'
-    '0030a0e10060d2e5060051e10400001a0110d3e4012082e2000051e3f8ffff1a0010a0e30e60a0e1e3ffffea200195e50070a0e370908de50090a0e3'
-    '000050e3f201000a600395e5000050e33000000aa00595e5000050e32f00000ae00795e5000050e3b700000a200a95e5000050e3b600000a600c95e5'
-    '000050e3b500000aa00e95e5000050e3b600000a68209de5000092e5000050e37701000a400292e5000050e39a01000a800492e50210a0e1000050e3'
-    'a801000ac00691e5000050e3a701000a000991e5000050e3a601000a400b91e5000050e3a501000a800d91e5000050e3a401000ac00f91e5000050e3'
-    'c301000a000098e5000050e3c201000a470f85e20020e0e30010a0e30070e0e3880100ea0170a0e3bc0100ea0270a0e3ba0100ea200095e5941095e5'
-    '000051e12000000a0500a0e10b10a0e1320600eb742b03e3741c03e3903095e54000a0e3022085e0011085e008008de5740b02e300208de5002085e0'
-    '04108de50500a0e10b10a0e16d0600eb0c0085e50800a0e3283095e5302085e2501085e208008de500208de5340a02e3002085e004108de50500a0e1'
-    '0b10a0e1600600eb201095e52c0085e5941085e5280095e578209de5000050e30500001a900085e264008de564009de5000090e5000050e3b5feff0a'
-    '44109be56c0084e231ff2fe1a4109be5010050e30100a093000051e30300000a001091e50e2041e2230052e30800003a241095e5682606e30e0051e3'
-    '0e10a093300051e33010a023811081e0912221e02118a0e198309be5913024e03c209be5200095e532ff2fe10a0050e32c7095e50a00a093280050e3'
-    '0e3084e22800a023000057e33d00000a031080e078209de52111a0e1680051e36d00008a0510a0e164008de57000b1e55c308de5000050e374108de5'
-    '3500000a000057e360708de55e00000a64109de50208a0e35c409de50080a0e3029081e2010880e070008de58100a0e10468a0e10710a0e168008de5'
-    '74009de5080190e7000050e30b00000abc19dbe10020a0e340709be58c308de2011086e090208de58c108de50010a0e30a20a0e137ff2fe178209de5'
-    '2c1095e5060058e3093084e001808892010058913f00002a70009de5006086e068009de5040080e00340a0e1020080e2690f50e3e2ffff9a360000ea'
-    '0370a0e32f0100ea0470a0e32d0100ea0570a0e32b0100ea78209de5320000ea0670a0e3270100eac09c0ee3508085e2ff9f4fe30040a0e3300085e2'
-    '70008de5060000ea0010a0e374009de5060054e3041180e70140849207005491bbffff2a04c198e700005ce3f5ffff0a200095e50010a0e3000050e3'
-    'f2ffff0a70109de5046191e7ff1300e301005ce101c0a0216c109de50c20a0e10130a0e1067083e0012052e20970d7e70170c3e4faffff1a0020a0e3'
-    '0c20c1e794209be534309be5002092e533ff2fe12c7095e50010a0e178209de5dbffffea5c309de560009de5000050e364009de5053083120c4095e5'
-    '000054e31400000a690f53e31200002a691f63e2000051e12400002aa46085e20040a0e30070a0e3104085e5030000ea074106e7017047e2180077e3'
-    '1600000a070116e7000050e3f8ffff0a38109be531ff2fe178209de5f4ffffeaa46085e20040a0e30070a0e3104085e5030000ea074106e7017047e2'
-    '180077e30600000a070116e7000050e3f8ffff0a38109be531ff2fe178209de5f4ffffea0000a0e3980085e59c0085e5a00085e5f3fdffea5c308de5'
-    '002060e2023080e20170a0e30780a0e1030051e10800003a017082e0027047e2000057e10400003a016048e2031041e0017088e2160056e3f3ffff9a'
-    '64008de5080054e0084095e50000a0339c6095e578209de5000054e1080085850040a081000056e3108085e50400000a980095e5040050e1a0009505'
-    '080050014d00000aa47085e20090a0e30060a0e3030000ea069107e7016046e2180076e30500000a060117e7000050e3f8ffff0a38109be531ff2fe1'
-    'f5ffffea0000a0e3009e0ee39c0085e5740c03e3002085e0740b03e3ff9f4fe30060a0e3000085e0984085e5a08085e560008de574408de570708de5'
-    '68208de5030000ea061187e7016086e2060058e12800000a0c0095e5043086e0000053e11f00002a03c192e70010a0e300005ce32000951500005013'
-    'f1ffff0a60109de5037191e7ff1300e301005ce101c0a0216c109de50c20a0e10130a0e1074083e0012052e20940d4e70140c3e4faffff1a0020a0e3'
-    '0c20c1e794209be534309be5002092e533ff2fe174409de50010a0e170709de568209de5d9ffffea0770a0e3620000ea78209de5000056e39c6085e5'
-    '0300001a87fdffea9c8085e50860a0e178209de564109de50208a0e3a47085e20080a0e3019880e05c009de50048a0e1030000ea018088e2094084e0'
-    '060058e178fdff2a080197e7000050e3f8ffff0abc19dbe10020a0e340609be58c308de2011084e090208de58c108de50010a0e30a20a0e136ff2fe1'
-    '78209de59c6095e5ebffffea0870a0e33c0000ea020053e10170a0310320a031011081e2090d80e2100051e31200000a043090e5000053e3f8ffff0a'
-    '003090e5010077e3f2ffff1a0170a0e10320a0e1f2ffffea0970a0e32a0000ea0a70a0e3280000ea0b70a0e3260000ea0c70a0e3240000ea0d70a0e3'
-    '220000ea78209de5010077e349fdff0a70109de5870187e00003b1e768108de5000050e30100000a1c109be531ff2fe168009de50030a0e3181095e5'
-    '14c095e5082090e52030c0e5021051e0003080e50310a03107005ce1043080e5083080e50c3080e5103080e5143080e5183080e51c3080e50000e003'
-    '181085e514008505020000ea0e70a0e3000000ea0f70a0e374009de570109de50060d0e5870187e0000381e0000056e300e0a0e1200080e20c00000a'
-    '052502e30030a0e3022085e01f9200e3090053e10600000a0310d2e70360c0e7013083e2000051e30160a0e10390a0e1f5ffff1a0010a0e30e60a0e1'
-    '0910c0e770909de50500a0e10610a0e1a80500eb54309be58c208de274109de50300a0e333ff2fe1000050e31000000a000096e5000050e30100000a'
-    '1c109be531ff2fe10200a0e30020a0e31c0086e5181095e5080096e5002086e5042086e5082086e50c2086e5102086e5142086e52c0000ea1cc096e5'
-    'b8209de502108ce3cc309de5030051e3d0009de50c109605020051014300000a4c208de50010a0e34c209be544008de584008de248308de568608de5'
-    '32ff2fe174609de58c208de254309be50300a0e30610a0e133ff2fe1000050e31800000a68609de5000096e5000050e30100000a1c109be531ff2fe1'
-    '0300a0e30020a0e31c0086e544009de5140086e548009de5100086e54c009de50c0086e5181095e5080096e5042086e5002086e5082086e5000051e0'
-    '0200a03178209de5180085e5c2fcffeab8009de534008de5cc009de500209be55c109be530008de5d0009de52c008de50600a0e132ff2fe168609de5'
-    '000050e3daffff0a08309be50010a0e10000a0e340108de53c008de50100a0e10010a0e30220a0e333ff2fe1000050e3cc00000a0000a0e338008de5'
-    '8c0100ea101096e5030051e11410960500005101b6ffff1a78209de501005ce370908de59efcff1a010077e39cfcff0a870187e070109de5147085e5'
-    '000381e074008de5040090e5000050e394fcff0a60009de5c59d09e31c9148e30000d0e5000050e30b00000a451400e3932100e3011088e0002140e3'
-    '413040e21a0053e320008033090020e0900209e00100d1e4000050e3f7ffff1a74009de5010059e300209be50190a0935c109be5200080e232ff2fe1'
-    '000050e368008de57d02000a74209de568709de5040092e5000050e37502000a740104e30060a0e3000085e070008de5030000ea040092e5016086e2'
-    '000056e16c02002a000092e58611b0e7090051e1f7ffff1a041090e50700a0e108309be50020a0e333ff2fe174209de5000050e3efffff1a10c09be5'
-    '0110a0e370009de50229a0e30730a0e13cff2fe174209de5000050e3e6ffff0a70309de50010a0e30370a0e10010e7e70300a0e120209be56c109be5'
-    '32ff2fe170309be5000050e30070a01120209be570009de574109be544108de50310a0e14c308de532ff2fe1000050e348708de51d00000a070050e1'
-    '1b00002a40008de528109be54c009de531ff2fe140109de5000081e04c008de5070050e11200002a20209be54c009de544109de532ff2fe1000050e3'
-    '0c00000a0030a0e148009de5000053e10800008a6c709de50000a0e34c209de5011ba0e300008de50700a0e1120500eb0700a0e1020000ea6c009de5'
-    '0010a0e30010c0e5133000e30170a0e3803040e30010d0e5092041e2170052e30300008a170213e10100000a010080e2f7ffffea2e0051e30200001a'
-    '0110d0e52f0051e302008002010040e20110f0e52f0051e3fcffff0a68709de5000051e374209de598ffff0a24209be560109de532ff2fe174209de5'
-    '000050e392ffff1a88709be520209be570009de50710a0e18c909be532ff2fe1000050e3ec00000a0060a0e148009de5000056e1e800002a28109be5'
-    '0700a0e131ff2fe1006086e048009de5000056e1e100002a20209be50600a0e10910a0e132ff2fe1000050e3db00000a0030a0e148009de5000053e1'
-    'd700008a0100a0e3011ca0e300008de50620a0e150009de5cc0400ebd30000ea0c109be540009de531ff2fe10225e0e328008de5020080e0020570e3'
-    '0000a0e338008de5b800003a3c008de50010a0e308309be50020a0e340009de533ff2fe1000050e30000a0e338008de5ae00001a28009de514109be5'
-    '010080e270908de531ff2fe118209be50060a0e10209a0e30810a0e332ff2fe1000056e338008de53c608de59f00000a38009de5000050e39c00000a'
-    '28609de50110a0e310c09be53c009de540309de50620a0e13cff2fe1060050e19300001a401a9fe50020a0e33c009de528309de501108fe00320c0e7'
-    '20209be532ff2fe1000050e38900000a1c1a9fe520209be53c009de501108fe032ff2fe1000050e38200000a28109be570009be531ff2fe114008de5'
-    '28109be568009be531ff2fe124008de528109be56c009be531ff2fe118008de50000a0e31c008de53c009de5010000ea3e0051e30f00000a20209be5'
-    '68109be532ff2fe1000050e34f00000a24109de50090a0e10110f0e7092041e2170052e3f2ffff8a133000e30160a0e3803040e3160213e1edffff0a'
-    '20209be50900a0e16c109be532ff2fe1000050e320008de55900000a20209be50900a0e170109be532ff2fe1000050e33100000a20109de5010050e1'
-    '2e00002a14309de520209be574109be5030080e00060a0e132ff2fe1000050e34800000a0030a0e120009de5000053e14400008a0000a0e3011ba0e3'
-    '00008de50620a0e16c009de5480400eb6c009de5980200eb0010d0e5000051e31700000a936100e3012080e2c50d09e3006140e31c0148e3413041e2'
-    '1a0053e320108133000021e00110d2e4900600e0000051e3f7ffff1a010050e30110a0e30100a09138109de51c209de58201a1e7012082e23c009de5'
-    '1c208de5000049e0040081e518009de520109de5000081e01c109de5020951e3aaffff3a04109be540009de531ff2fe1000050e31400001a54309be5'
-    '8c208de274109de50300a0e333ff2fe1000050e30d00001ab8009de534109de5000051e1cc009d0530109d05000051010600001a34009de528109de5'
-    '010050e1d0009d052c109d0500005101a600000a68609de5030000ea68609de504109be540009de531ff2fe13c009de5000050e30100000a1c109be5'
-    '31ff2fe138009de5000050e334feff0a1c109be531ff2fe131feffea50109de50000a0e30000c1e578709be520209be570009de50710a0e17c909be5'
-    '32ff2fe1000050e31b00000a0060a0e148009de5000056e11700002a28109be50700a0e131ff2fe1006086e048009de5000056e11000002a20209be5'
-    '0600a0e10910a0e132ff2fe1000050e30a00000a0030a0e148009de5000053e10600008a0100a0e3011aa0e300008de50620a0e158009de5d40300eb'
-    '020000ea58109de50000a0e30000c1e580709be520209be570009de50710a0e184909be532ff2fe1000050e31b00000a0060a0e148009de5000056e1'
-    '1700002a28109be50700a0e131ff2fe1006086e048009de5000056e11000002a20209be50600a0e10910a0e132ff2fe1000050e30a00000a0030a0e1'
-    '48009de5000053e10600008a0100a0e32010a0e300008de58c008de20620a0e1ad0300eb010000ea0000a0e38c00cde58c008de2137000e3012080e2'
-    '0100a0e3807040e3011052e5093041e2170053e30300008a100317e10100000a012082e2f7ffffea000051e30200000a3a0041e20a0070e30300002a'
-    '54109de50000a0e30000c1e55c0000ea0000a0e3000180e00130d2e4800081e0301043e2300040e20a0051e30310a0e1f7ffff3a2e0053e31900001a'
-    '0010d2e5300051e31600003a390051e33700008a0160d2e5307041e20030a0e30a10a0e3300056e33400003a390056e33200008a071187e00220d2e5'
-    '811086e0300052e3307041e26410a0e32b00003a390052e3071187908110829030704192fa1fa093250000ea000050e32500001a0000a0e354109de5'
-    '300080e30230a0e30120a0e30000c1e50400a0e30310a0e3230000ea1c009de50090a0e3000050e3ab00000a1c009de514109be58001a0e140008de5'
-    '31ff2fe1000050e328008de54cffff0a0000a0e338109de528309de50020b1e7041091e50020a3e7080080e2041083e540109de5000051e1f5ffff1a'
-    '9a0000ea0110a0e30070a0e30130a0e3000050e38200000a440700e3311003e3b01088e10500a0e30410a0e30330a0e30220a0e354609de53170a0e3'
-    '0370c6e72f30a0e30230c6e73020a0e30120c6e70010a0e30010c6e728109be558009de531ff2fe164109de55c209de5000081e50000a0e350109de5'
-    '0000c2e50010d1e5000051e32200000a5c309de53f2100e3020050e10700000a0010c3e5012083e20f1153e5010080e20230a0e1000051e30020a0e1'
-    'f4ffff1a5c109de50000a0e30200c1e754009de50010d0e5000051e31500000a030082e22033a0e1040053e31300008a5c309de50010a0e30010c3e7'
-    '201c07e3b210a3e12010a0e30210c3e554109de50010d1e5000051e30900001a170000ea54009de50010d0e50000a0e3000051e30300001a140000ea'
-    '0200a0e1120000ea0200a0e13f3100e3030050e13f7100e3452700e30070a031033047e05c709de5022088e0000053e30010c7170130831201008012'
-    '0110d21400005113f8ffff1a5c209de50010a0e30010c2e7280085e568709de504109be50700a0e131ff2fe10500a0e10b10a0e14c0100eb742b03e3'
-    '741c03e3022085e0903095e500208de54000a0e358209de5011085e004108de50b10a0e108008de50500a0e1880100eb302085e20c0085e5283095e5'
-    '0800a0e300208de5501085e25c209de504108de50b10a0e108008de50500a0e17c0100eb282095e5201095e5000052e378209de52c0085e5941085e5'
-    '21fbff1a1cfbffea070187e0a120a0e10070a0e3802082e00000a0e3010052e101700033073093e14effff1a012042e0010080e2010052e1fbffff2a'
-    '0a0050e36dffff2a47ffffea0000a0e340008de528008de51c109be538009de531ff2fe11c109be53c009de531ff2fe14c209be57c008de20010a0e3'
-    '32ff2fe184009de57c209de580309de5000042e0092d03e388109de5900202e050609be590009be5022383e0012042e01c109de536ff2fe168009de5'
-    '18c095e540109de5082090e502005ce00900a031010080e0020650e34700009a0090a0e3430f85e24c008de5190000ea082096e5140095e574109de5'
-    '02c05ce009c0a0312090c6e5010050e1009086e50000e003049086e51400850568009de5089086e50c9086e5109086e5149086e5189086e51c9086e5'
-    '18c085e5082090e540109de502005ce00900a031010080e0020650e32900009a4c009de50010e0e30020a0e30060e0e374108de5080000ea060053e1'
-    '74109de50210a0310360a03174108de5012082e2090d80e2100052e30d00000a020057e1f9ffff0a143090e5000053e30030901500005313f4ffff0a'
-    '74109de5103090e5010071e3ebffff1a74208de50360a0e1edffffea74009de5010070e32b00000a74009de570609de5800180e00003b6e7000050e3'
-    'bfffff0a1c109be531ff2fe118c095e5bbffffea68009de5000090e5000050e30400000a1c109be531ff2fe168009de518c095e5082090e568109de5'
-    '0100a0e340309de51c0081e528009de5000081e51c009de5040081e534009de50c0081e530009de5100081e52c009de5140081e502005ce00000a033'
-    '083081e5030080e0180085e50500a0e1d90100eb78209de5010077e39dfcff1a39f9ffea28009de5000050e30200000a1c109be528009de531ff2fe1'
-    '68009de5000090e5000050e30100000a1c109be531ff2fe168309de50300a0e30020a0e31c0083e52c009de5140083e530009de5100083e534009de5'
-    '0c0083e5181095e5080093e5042083e5002083e5082083e555fcffeacc1700009c170000f0412de918d04de20380a0e10e3041e20250a0e10020a0e1'
-    '0000a0e3020073e30800003a003095e5020053e10500001a103095e50100a0e3000053e30c709515030057110100008a18d08de2f081bde8082095e5'
-    '0c0051e30200001a031052e00010a033030000ea031047e0033082e0010053e10310a031020051e1081085e5f0ffff0aa46085e20070a0e30040a0e3'
-    '030000ea047106e7014044e2180074e30500000a040116e7000050e3f8ffff0a381098e531ff2fe1f5ffffea0000a0e3481098e5980085e59c0085e5'
-    'a00085e514008de510008de50c008de508008de504008de51800a0e300008de50d00a0e131ff2fe10100a0e318d08de2f081bde830482de9243702e3'
-    '0140a0e1033094e6000053e13088bd180100a0e10150a0e10210a0e1260000eb0000a0e30010e0e3900085e5940085e5280085e52c0085e55004c4e5'
-    '1003c4e50003c4e50002c4e50000c4e5000085e5040085e5080085e50c0085e5100085e5141085e53088bde813c000e30120a0e380c040e30030d0e5'
-    '091043e2170051e30300008a12011ce10100000a010080e2f7ffffea2e0053e30200001a0110d0e52f0051e302008002010040e20110f0e52f0051e3'
-    'fcffff0a1eff2fe1f0412de90080a0e1700090e50150a0e1000050e30100000a381095e531ff2fe1740098e50040a0e3704088e5000050e30100000a'
+    'f04f2de934d04de20240a0e1582093e500b0a0e128308de51c108de532ff2fe110008de5200094e524408de5000050e39901000a24609de5240702e3'
+    '28509de5744d03e300a086e0000096e50b0050e11300000a0600a0e10510a0e1750a00eb0000a0e30010e0e3900086e5940086e5280086e52c0086e5'
+    '5004cae51003cae50003cae50002cae50000cae500b086e5040086e5080086e50c0086e5100086e5141086e50b00a0e10610a0e10520a0e1047086e0'
+    '840200eb138000e3000050e3808040e314708de51700000a0110a0e30700a0e10020d0e5093042e2170053e30300008a110318e10100000a010080e2'
+    'f7ffffea2e0052e30200001a0110d0e52f0051e302008002012040e20100f2e52f0050e3fcffff0a0600a0e10510a0e1d70200eb000050e31d00001a'
+    '0b00a0e10610a0e10520a0e1260300eb000050e32000000a0110a0e30700a0e10020d0e5093042e2170053e30300008a110318e10100000a010080e2'
+    'f7ffffea2e0052e30200001a0110d0e52f0051e302008002012040e20100f2e52f0050e3fcffff0a0600a0e10510a0e1b90200eb000050e30800000a'
+    '280096e5000050e37c00001a24009de5907080e2000097e5000050e37700001a340100ea0600a0e10510a0e1180a00eb0000a0e30670a0e10a40a0e1'
+    '0010e0e3141086e50610a0e1940086e50520a0e1280086e52c0086e5040086e5080086e50c0086e5100086e50003cae50002cae50000cae59000a7e5'
+    '5004e4e51003eae50b00a0e1270200eb000050e31901000a14509de50110a0e30500a0e10020d0e5093042e2170053e30300008a110318e10100000a'
+    '010080e2f7ffffea2e0052e30200001a0110d0e52f0051e30200800228909de5012040e20100f2e52f0050e3fcffff0a24609de50910a0e10600a0e1'
+    '730300eb010050e31e00000a0b00a0e10610a0e10920a0e1c90200eb000050e36301000a0110a0e30500a0e10020d0e5093042e2170053e30300008a'
+    '110318e10100000a010080e2f7ffffea2e0052e30200001a0110d0e52f0051e302008002012040e20100f2e52f0050e3fcffff0a24609de50910a0e1'
+    '0600a0e1540300eb010050e34a01001a0600a0e10910a0e1c30900eb741c03e3742b03e3903096e54000a0e3011086e0022086e000208de50420a0e1'
+    '04108de50910a0e108008de50600a0e1ff0900eb283096e5501086e20c0086e50800a0e3302086e200208de504108de50910a0e108008de50600a0e1'
+    '0a20a0e1f30900eb282096e5201096e5000052e32c0086e5941086e584ffff0a28a09de56c008be244109ae531ff2fe1a4109ae5010050e30100a093'
+    '000051e30300000a001091e50e2041e2230052e30900003a24109de5682606e3241091e50e0051e30e10a093300051e33010a023811081e0912221e0'
+    '2118a0e124509de598309ae5913024e03c209ae5200095e532ff2fe12c3095e50020a0e10a0050e30e5084e20a20a093280052e32820a023000053e3'
+    '3700000a050082e02001a0e1680050e33300008a24c09de514b09de50c208de50c10a0e17000b1e520108de5000050e32e00000a000053e35800000a'
+    '0c109de50208a0e30588a0e100a0a0e3029081e2010880e081b0a0e10310a0e118008de520009de50a0190e7000050e30f00000a28209de50070a0e3'
+    '30708de50340a0e12c308de20c60a0e1bc19d2e1407092e51c209de5011088e02c108de50010a0e337ff2fe12c1096e506c0a0e10430a0e106005ae3'
+    '097085e001a08a9201005a913700002a18009de5008088e005008be0020080e20750a0e1690f50e3dfffff9a2f0000ea0570a0e124c09de5300000ea'
+    'c07c0ee350908ce2ff7f4fe30080a0e330008ce218008de5060000ea0010a0e320009de5060058e3081180e70180889203005891c2ffff2a086199e7'
+    '000056e3f5ffff0a20009ce50010a0e3000050e3f2ffff0a18109de5ff2300e3020056e10b30a0e10260a021081191e70620a0e1014083e0012052e2'
+    '0740d4e70140c3e4faffff1a0010a0e30610cbe794109ae534309ae5002091e50b10a0e133ff2fe124c09de50010a0e12c309ce5dbffffea0570a0e1'
+    '000053e328a09de50c209de5057087120c009ce5000050e31400000a690f57e31200002a691f67e2020051e12600002a24009de50040a0e30060a0e3'
+    'a45080e2104080e5030000ea064105e7016046e2180076e31400000a060115e7000050e3f8ffff0a38109ae531ff2fe1f5ffffeaa4508ce20040a0e3'
+    '0060a0e310408ce5030000ea064105e7016046e2180076e30500000a060115e7000050e3f8ffff0a38109ae531ff2fe1f5ffffea24109de50000a0e3'
+    '980081e59c0081e5a00081e510009de534d08de2f08fbde8005062e2023082e20140a0e304b0a0e1030051e10800003a016085e0026046e2020056e1'
+    '0400003a01604be2031041e001408be2160056e3f3ffff9a24109de50b0050e00000a033083091e59c5091e5000053e120308de50800818520008d85'
+    '000055e310b081e50800000a24009de520109de5980090e5010050e10300001a24009de5a00090e50b0050e16b00000a24409de50080a0e328609de5'
+    '0050a0e3a49084e20c208de5030000ea058109e7015045e2180075e30500000a050119e7000050e3f8ffff0a381096e531ff2fe1f5ffffea20009de5'
+    '982084e2008e0ee30010a0e3030882e8740c03e300a084e0740b03e3ff8f4fe30050a0e3000084e018008de5030000ea051189e7015085e205005be1'
+    '4600000a20109de50c0094e5013085e0000053e13c00002a03619ae70010a0e3000056e32000941500005013f0ffff0a18109de5ff2300e3020056e1'
+    '0260a021031191e70620a0e114309de5014083e0012052e20840d4e70140c3e4faffff1a14109de50020a0e30620c1e728209de5343092e5942092e5'
+    '002092e533ff2fe124409de50010a0e1d9ffffea0600a0e10910a0e1780800eb741c03e3742b03e3903096e54000a0e3011086e0022086e000208de5'
+    '0420a0e104108de50910a0e108008de50600a0e1b40800eb283096e5501086e20c0086e50800a0e3302086e200208de504108de50910a0e108008de5'
+    '0600a0e10a20a0e1a80800eb201096e52c0086e5941086e574ffffea0c209de5000055e39c5084e50300001a6fffffea9cb084e50b50a0e10c209de5'
+    '0208a0e302a880e024009de52c808de20778a0e10090a0e3a44080e20060a0e3030000ea016086e20a7087e0050056e15fffff2a060194e7000050e3'
+    'f8ffff0a28209de50830a0e130908de5bc19d2e1405092e51c209de5011087e02c108de50010a0e335ff2fe124009de59c5090e5ebffffeaf0412de9'
+    '18d04de20380a0e10e3041e20250a0e10020a0e10000a0e3020073e30800003a003095e5020053e10500001a103095e50100a0e3000053e30c709515'
+    '030057110100008a18d08de2f081bde8082095e50c0051e30200001a031052e00010a033030000ea031047e0033082e0010053e10310a031020051e1'
+    '081085e5f0ffff0aa46085e20070a0e30040a0e3030000ea047106e7014044e2180074e30500000a040116e7000050e3f8ffff0a381098e531ff2fe1'
+    'f5ffffea0000a0e3481098e5980085e59c0085e5a00085e514008de510008de50c008de508008de504008de51800a0e300008de50d00a0e131ff2fe1'
+    '0100a0e318d08de2f081bde830482de9243702e30140a0e1033094e6000053e13088bd180100a0e10150a0e10210a0e1ec0700eb0000a0e30010e0e3'
+    '900085e5940085e5280085e52c0085e55004c4e51003c4e50003c4e50002c4e50000c4e5000085e5040085e5080085e50c0085e5100085e5141085e5'
+    '3088bde8f04b2de90180a0e1301092e5540080e20240a0e131ff2fe1000050e30070a0e30060a0110000d015000050130100001a0700a0e1f08bbde8'
+    '2c2094e50600a0e12f10a0e332ff2fe1000050e306005011f6ffff0a605094e5000055e30010d51500005113f1ffff0a281094e50090a0e1064040e0'
+    '0500a0e131ff2fe1000084e0010080e2a002a0e1100050e3e7ffff8a040502e3010054e3000088e00140a0930410a0e10020a0e10130d6e4011051e2'
+    '0130c2e4fbffff1a2f10a0e30410c0e70910a0e10020d5e5000052e30b00000a053502e3017085e2033088e0026084e2a662a0e1100056e30400008a'
+    '0420c3e7014084e20120d7e4000052e3f6ffff1a013084e20020a0e30070a0e30320c0e7740d03e3000088e00130d1e5000053e30a00000a021081e2'
+    '0050a0e3fe6300e3017085e2060055e10530c0e70300000a0530d1e70750a0e1000053e3f7ffff1a000057e30720c0e7017000130700a0e1f08bbde8'
+    '13c000e30120a0e380c040e30030d0e5091043e2170051e30300008a12011ce10100000a010080e2f7ffffea2e0053e30200001a0110d0e52f0051e3'
+    '02008002010040e20110f0e52f0051e3fcffff0a1eff2fe1043090e500c0a0e10000a0e3000053e34e00000a14309ce50f0053e31eff2f8170402de9'
+    '10d04de2040502e300508ce0830183e000e38ce00000a0e32461dee5000056e30800000a253100e303308ee00040d5e5040056e10400001a0160d3e4'
+    '015085e2000056e3f8ffff1a0060a0e30030d5e5030056e13200001a240702e3243091e500008ce00150a0e10210a0e10c40a0e133ff2fe10010a0e1'
+    '0000a0e3000051e32700001a201094e50100a0e3942094e5010052e12200000a0400a0e10510a0e13a0700eb742b03e3741c03e3903094e54000a0e3'
+    '022084e0011084e008008de5740b02e300208de5002084e004108de50400a0e10510a0e1750700eb0c0084e50800a0e3283094e5302084e2501084e2'
+    '08008de500208de5340a02e3002084e004108de50400a0e10510a0e1680700eb0010a0e10100a0e32c1084e5201094e5941084e510d08de27040bde8'
+    '1eff2fe1f04b2de90180a0e1301092e5540080e20250a0e131ff2fe1000050e30040a0e30060d015000056130100001a0400a0e1f08bbde80010a0e3'
+    '2f0056e33200001a020000ea012080e00160d2e52b0000ea013080e00160d3e5000056e32600000a417046e20620a0e11a0057e320208233720052e3'
+    '2100001a0270d3e5000057e31e00000a412047e21a0052e3207087336f0057e31900001a0370d3e5000057e31600000a412047e21a0052e320708733'
+    '6d0057e31100001a0470d3e5000057e30e00000a412047e21a0052e320708733730057e30900001a0570d3e5000057e30600000a412047e21a0052e3'
+    '207087332f0057e30100001a570000ea0060a0e3011081e22f0056e3d0ffff0a000056e3cbffff1a0060a0e32c2095e52f10a0e30070a0e132ff2fe1'
+    '0040a0e3000056e3bdffff0a000056e1bbffff2a609095e5000059e30000d91500005013b6ffff0a281095e50900a0e1075046e031ff2fe1000085e0'
+    '010080e2a002a0e1100050e3adffff8a0710a0e1070056e10900000a010055e3040502e30150a093000088e00520a0e10130d1e4012052e20130c0e4'
+    'fbffff1a000000ea0050a0e3040502e32f10a0e3000088e00510c0e70010d9e5000051e30b00000a052502e3013089e2022088e0027085e2a772a0e1'
+    '100057e30400008a0510c2e7015085e20110d3e4000051e3f6ffff1a012085e20010a0e30040a0e30210c0e7740d03e3000088e00120d6e5000052e3'
+    '0a00000a023086e20060a0e3fe7300e3014086e2070056e10620c0e70300000a0620d3e70460a0e1000052e3f7ffff1a000054e30410c0e701400013'
+    '0400a0e1f08bbde80620d3e5000052e3aaffff0a071083e2000000ea0120d1e4000052e32f005213fbffff1a0060a0e32f0052e301604102a1ffffea'
+    'f04f2de9bcd04de2000052e350108de50030d21500a0a0e1240702e300b08ae0e01202e301508ae0e00001e3741d03e30080a0e30060a0e300005313'
+    '5e00001a01108ae04c108de50110a0e30680cbe700008ae004108ae5251100e348508de501608ae0419f8ae2895f85e2080000ea0530a0e10020a0e3'
+    '0010d3e5010052e1b800000a018088e2096d86e2100058e31100000a881188e0017389e01c1097e5000051e3f6ffff0a2020d7e5000052e3eeffff0a'
+    '0610a0e10530a0e10040d3e5040052e1ebffff1a0120d1e4013083e2000052e3f8ffff1ae5ffffea20119ae50060a0e30080a0e3000051e38800000a'
+    '60139ae5000051e33b00000aa0159ae5000051e33a00000ae0179ae5000051e33900000a201a9ae5000051e33800000a601c9ae5000051e33700000a'
+    'a01e9ae5000051e33600000a001090e5000051e33500000a401290e5000051e33400000a801490e5000051e34300000ac01690e5000051e34200000a'
+    '001990e5000051e34100000a401b90e5000051e34000000a801d90e5000051e33f00000ac00f90e5000050e35b00000a48009de5000090e5000050e3'
+    '5900000a470f8ae20020e0e30010a0e30080e0e3220000ea012082e20070a0e3ff6100e3060057e19bffff0a0730cbe70730d2e7017087e20760a0e1'
+    '000053e3f6ffff1a94ffffea0180a0e3470000ea0280a0e3450000ea0380a0e3430000ea0480a0e3410000ea0580a0e33f0000ea0680a0e33d0000ea'
+    '0780a0e33b0000ea0880a0e3390000ea020053e10180a0310320a031011081e2090d80e2100051e31200000a043090e5000053e3f8ffff0a003090e5'
+    '010078e3f2ffff1a0180a0e10320a0e1f2ffffea0980a0e3270000ea0a80a0e3250000ea0b80a0e3230000ea0c80a0e3210000ea0d80a0e31f0000ea'
+    '010078e37d00000a880188e00970a0e10003b7e7000050e30200000a50109de51c1091e531ff2fe1082097e50030a0e3d401cae1021051e02030c7e5'
+    '0310a031080050e10000e003003087e5043087e5083087e50c3087e5103087e5143087e5183087e51c3087e518108ae514008a05020000ea0e80a0e3'
+    '000000ea0f80a0e3880188e00040d5e5007389e0000054e3200087e20c00000a052502e30030a0e302208ae01f6200e3060053e10600000a0310d2e7'
+    '0340c0e7013083e2000051e30140a0e10360a0e1f5ffff1a0010a0e30610c0e70a00a0e10710a0e1ec0300eb50409de564208de20300a0e30510a0e1'
+    '543094e533ff2fe1000050e31000000a000097e5000050e30100000a1c1094e531ff2fe10200a0e30020a0e31c0087e518109ae5080097e5002087e5'
+    '042087e5082087e50c2087e5102087e5142087e52b0000ea1c1097e590609de5020081e3a4209de5030050e3a8309de50c009705060050014100000a'
+    '50409de55c008de244208de50010a0e33c608de54c2094e540308de532ff2fe1543094e564208de20300a0e30510a0e133ff2fe1000050e31900000a'
+    '000097e5000050e30200000a50109de51c1091e531ff2fe10300a0e31c0087e540009de5140087e544009de5100087e53c009de50c0087e50020a0e3'
+    '18109ae5080097e5042087e5002087e5082087e5000051e00200a03118008ae50000e0e3bcd08de2f08fbde890009de530008de5a4009de5002094e5'
+    '5c1094e52c008de5a8009de528008de50500a0e132ff2fe1000050e3d9ffff0a50409de50060a0e10000a0e30010a0e338008de50600a0e1083094e5'
+    '0220a0e333ff2fe1000050e3ab00000a0000a0e35e0200ea100097e5020050e11400970503005001b8ffff1a0000e0e3010051e3cc00001a010078e3'
+    'ca00000a880188e014808ae5006389e0040096e5000050e3bb00000a0000dbe5c58d09e31c8148e3000050e30c00000a48209de5451400e3011082e0'
+    '932100e3002140e3413040e21a0053e320008033080020e0900208e00100d1e4000050e3f7ffff1a50009de5010058e30180a093002090e55c1090e5'
+    '200086e232ff2fe1000050e3a000000a0040a0e1040096e540408de5000050e39e00000a740104e30190a0e30050a0e300008ae044008de538608de5'
+    '030000ea040096e5015085e2000055e19300002a000096e58511b0e7080051e1f7ffff1a041090e50020a0e350009de5083090e50400a0e133ff2fe1'
+    '000050e3efffff1a50009de50110a0e30229a0e30430a0e1107090e544009de537ff2fe1000050e3e6ffff0a44609de50010a0e30670a0e10010e7e7'
+    '0600a0e150409de5202094e56c1094e532ff2fe1703094e5000050e3202094e5741094e50740a0e134108de50040a0110600a0e10310a0e13c308de5'
+    '32ff2fe1000050e330408de51e00000a0070a0e1040050e11b00002a0460a0e150409de53c009de5281094e531ff2fe1007087e0060057e11300002a'
+    '202094e50700a0e134109de532ff2fe138609de5000050e32d00000a0030a0e130009de5000053e12900008a4c409de50000a0e300008de5011ba0e3'
+    '0720a0e10400a0e1560300eb0400a0e1030000ea4c009de50010a0e338609de50010c0e540409de5133000e3803040e30010d0e5092041e2170052e3'
+    '0300008a190213e10100000a010080e2f7ffffea2e0051e30200001a0110d0e52f0051e302008002010040e20110f0e52f0051e3fcffff0a000051e3'
+    '96ffff0a50109de5242091e50b10a0e132ff2fe1000050e390ffff1afe0000ea4c009de50010a0e3deffffea0c1094e50600a0e131ff2fe10215e0e3'
+    '24008de5010080e0020570e30000a0e3ab01003a083094e50010a0e338008de50600a0e10020a0e333ff2fe1000050e30000a0e3a201001a24009de5'
+    '141094e5010080e220608de531ff2fe1182094e50060a0e10209a0e30810a0e332ff2fe1000056e338608de5000050130c00001a50409de5910100ea'
+    '0000a0e3bcd08de2f08fbde850609de50040a0e3041096e540009de531ff2fe10400a0e1bcd08de2f08fbde850409de50110a0e324609de534008de5'
+    '10c094e538009de50620a0e120309de53cff2fe1060050e17a01001a8c1a9fe50000a0e338209de501108fe00600c2e70260a0e10600a0e1202094e5'
+    '32ff2fe1000050e36f01000a641a9fe50600a0e1202094e501108fe032ff2fe1000050e36801000a281094e5700094e531ff2fe108008de5281094e5'
+    '680094e531ff2fe114008de5741d03e3282094e501108ae06c0094e504108de532ff2fe110008de50000a0e318008de50600a0e1050000ea1c609de5'
+    '10009de518109de5000086e0020951e36200002a50109de5202091e5681091e532ff2fe1000050e35c00000a14609de50020a0e10200a0e10610f0e7'
+    '094041e2170054e30600008a06c0a0e1136000e30130a0e3806040e3130416e10c60a0e10900001a3e0051e30700000a50109de5202091e5681091e5'
+    '32ff2fe10020a0e1000050e3eaffff1a440000ea50409de50200a0e10260a0e1203094e56c1094e533ff2fe1000050e31c008de52801000a202094e5'
+    '0600a0e1701094e50c608de532ff2fe1000050e3cbffff0a1c609de5060050e1c9ffff2a50109de508309de5034080e0202091e5741091e50400a0e1'
+    '32ff2fe1000050e31401000a0030a0e1060050e11101008a0420a0e104409de50000a0e3011ba0e300008de50400a0e1890200eb0400a0e15dfcffeb'
+    '0010d0e5000051e3b1ffff0a934100e3012080e2c50d09e3004140e31c0148e3413041e21a0053e320108133000021e00110d2e4900400e0000051e3'
+    'f7ffff1a010050e30110a0e30100a09134109de518209de58201a1e7012082e238009de50c309de518208de5000043e0040081e597ffffea50009de5'
+    '041090e520009de531ff2fe1000050e3ec00001a50009de564208de20510a0e1543090e50300a0e333ff2fe1000050e3e400001a90009de530109de5'
+    '000051e1a4009d052c109d0500005101dd00001a30009de524109de5010050e1a8009d0528109d0500005101d600001a18009de5000050e35c01000a'
+    '50009de5141090e518009de58001a0e124008de531ff2fe1000050e320008de5ca00000a34609de50000a0e324409de520509de50610a0e10530a0e1'
+    '0020b1e7041091e50020a3e7080080e2000054e1041083e5f6ffff1a480100ea50009de548109de5202090e5d888c0e1440600e3007081e044009de5'
+    '0810a0e132ff2fe130409de5000050e31a00000a0050a0e1040050e11700002a50009de5281090e50800a0e131ff2fe1006085e0040056e11000002a'
+    '50009de50910a0e1202090e50600a0e132ff2fe1000050e30900000a0030a0e1040050e10600008a0100a0e3011ca0e300008de50700a0e10620a0e1'
+    '0e0200eb010000ea0000a0e30000c7e550009de548109de5202090e5788090e57c5090e5940800e3009081e044009de50810a0e132ff2fe1000050e3'
+    '1a00000a0060a0e1040050e11700002a50009de5281090e50800a0e131ff2fe1006086e0040056e11000002a50009de50510a0e1202090e50600a0e1'
+    '32ff2fe1000050e30900000a0030a0e1040050e10600008a0100a0e3011aa0e300008de50900a0e10620a0e1e50100eb010000ea0000a0e30000c9e5'
+    '50009de5808090e5202090e5845090e544009de50810a0e132ff2fe1000050e31b00000a0060a0e1040050e11800002a50009de5281090e50800a0e1'
+    '31ff2fe1006086e0040056e11100002a50009de50510a0e10470a0e1202090e50600a0e132ff2fe1000050e30900000a0030a0e1070050e10600008a'
+    '0100a0e32010a0e300008de564008de20620a0e1be0100eb010000ea0000a0e36400cde548509de5440700e3134000e3006085e064008de2012080e2'
+    '0100a0e3804040e3011052e5093041e2170053e30300008a100314e10100000a012082e2f7ffffea000051e30200000a3a0041e20a0070e30200002a'
+    '0000a0e30000c6e55a0000ea0000a0e3000180e00130d2e4800081e0301043e2300040e20a0051e30310a0e1f7ffff3a2e0053e32f00001a0010d2e5'
+    '300051e32c00003a390051e33400008a0130d2e5305041e200c0a0e30a10a0e3300053e33100003a390053e32f00008a051185e00220d2e5811083e0'
+    '300052e3305041e26410a0e32800003a390052e3051185908110829030504192fa1fa093220000ea50409de534009de520609de5041094e534008de5'
+    '0600a0e131ff2fe138209de5000052e30300000a50009de51c1090e50200a0e131ff2fe134209de5000052e35ffdff0a50009de51c1090e50200a0e1'
+    '31ff2fe15afdffea000050e30c00001a0000a0e3300080e30000c6e50400a0e30310a0e30230a0e30120a0e30c0000ea0110a0e30050a0e301c0a0e3'
+    '000050e35a00000a48209de5440700e3311003e30330a0e3b01082e10500a0e30410a0e30220a0e33150a0e30350c6e72f30a0e30230c6e73020a0e3'
+    '0120c6e70010a0e30010c6e748509de550009de5281090e50900a0e131ff2fe10020a0e390008ae55427e5e5103155e5000053e32000000a0510a0e1'
+    '3f0100e3000052e10700000a0030c1e5010081e20f3151e5012082e20010a0e1000053e30200a0e1f4ffff1a0010a0e30010c5e70020d6e5000052e3'
+    '1500000a037080e22713a0e1040051e31400008a0010a0e30520a0e10710c5e7201c07e3b010a2e12000a0e30200c2e50020d6e550609de5000052e3'
+    '0b00001a190000ea0020d6e50070a0e350609de5000052e30500001a150000ea0070a0e150609de5120000ea0070a0e150609de548109de5450700e3'
+    '003081e03f0100e3000057e13f1100e30710a031000041e0000050e30720c51701008012017087120120d31400005213f8ffff1a0000a0e30700c5e7'
+    '28708ae50140a0e3f4fdffea050185e0a120a0e10030a0e3802082e00000a0e3010052e10130003303309ce18fffff1a012042e0010080e2010052e1'
+    'fbffff2a0a0050e395ffff2a88ffffea0000a0e324008de520008de550409de534009de51c1094e531ff2fe11c1094e538009de531ff2fe14c2094e5'
+    '54008de20010a0e332ff2fe15c009de554209de558309de5000042e0092d03e360109de5900202e0506094e5900094e5022383e0012042e018109de5'
+    '36ff2fe1082097e50030a0e318109ae5020051e00300a03124309de5030080e0020650e34100009a0040a0e3430f8ae244008de5180000ea082096e5'
+    '0030a0e314009ae5021051e02040c6e50410a031050050e10000e003004086e5044086e5084086e50c4086e5104086e5144086e5184086e51c4086e5'
+    '18108ae514008a05082097e5020051e00300a03124309de5030080e0020650e32400009a44009de50020a0e30060e0e30050e0e3050000ea0250a0e1'
+    '0360a0e1012082e2090d80e2100052e30d00000a020058e1f9ffff0a143090e5000053e30030901500005313f4ffff0a103090e5010075e3efffff0a'
+    '060053e10250a0310360a031edffffea010075e32900000a850185e00960a0e10003b6e7000050e3c6ffff0a50109de51c1091e531ff2fe118109ae5'
+    'c1ffffea000097e5000050e30400000a50109de51c1091e531ff2fe118109ae5082097e50100a0e324309de51c0087e520009de5000087e518009de5'
+    '040087e530009de50c0087e52c009de5100087e528009de5140087e5020051e00000a033083087e5030080e018008ae50a00a0e10710a0e1190000eb'
+    '010078e398fcff1a71fcffea20009de5000050e30300000a50009de51c1090e520009de531ff2fe1000097e5000050e30200000a50109de51c1091e5'
+    '31ff2fe10300a0e31c0087e528009de5140087e52c009de5100087e530009de552fcffea58160000201600001c2090e5012092e21c2080e54b00003a'
+    'f0482de9205190e5dc2001e3606390e5023080e0000055e3a07590e501500013000056e3016000131c5180e58650a0e1e06790e5000057e35c5380e5'
+    '03700013000056e301600013205a90e59c7580e50661a0e1607c90e5000055e3dc6780e505500013a06e90e5000057e3dc2202e3044093e506700013'
+    '000056e302c080e0442293e507600013000054e384e493e501400013000052e35c7c80e5c47693e50920001300005ee39c6e80e50ae00013000057e3'
+    '046993e50b7000131c5a80e58441a0e1445b93e5000056e3402283e51120a0e3c07683e50c600013847d93e5000055e31c2080e50d500013c40f93e5'
+    '000057e3004083e50e70001304409ce5000050e30f00001380e483e5000054e3c00f83e501400013006983e50402a0e1405b83e5807d83e500008ce5'
+    'f048bde8182081e51eff2fe1f04f2de91cd04de2030052e10060a0e34e01002a01e0a0e1020051e34b01003a40b09de50110a0e302c0a0e10050a0e3'
+    '0190a0e300108de50ce08de508008de5000056e30640a0e10140001304508de510608de514408de5040000ea0a0057e3c800001a03005ce10450a0e1'
+    '2701002a0c20a0e10170d2e4260057e31400001a18508de5030052e10250a0e14d00002a0000d2e50250a0e1230050e34900001a02508ce20080a0e3'
+    '0ab0a0e3030055e10b00002a0000d5e5200080e3780050e30a00001a03108ce201e0a0e310b0a0e3080000ea02c0a0e100005be36900001aa70000ea'
+    '0510a0e100e0a0e3010000ea00e0a0e30510a0e1019053e00300a0e132330be300a06ee20890a031013040e3070000ea030058e12500008a984b28e0'
+    '01a04ae2019049e2011081e209007ae31f00000a000059e31d00000a0040d1e53b0054e37a00000a306044e22f70e0e30a0056e30e00003a616044e2'
+    '5670e0e3060056e30060a0e30160003306001ee10700001a416044e201702ee2050056e30060a0e301600083066097e13670e0e30700001a044087e0'
+    '0b0054e10400002a00005ee3daffff0a2866a0e1100056e3d9ffff9a0ce09de50030a0e140b09de50190a0e310609de5054043e0040054e3190000ba'
+    '0010d5e5610051e30100d5056d0050033700000a040054e314409de51600000a610051e33a00000a710051e31200001a0110d5e52670a0e3750051e3'
+    '1500001a0210d5e56f0051e30310d505740051031000001a0400d5e53b0050e305208502227000030b0000ea2670a0e3030054e30a00001a0010d5e5'
+    '14409de52670a0e3670051e31200000a6c0051e30110d505740051032c00000a02c0a0e1010000ea02c0a0e114409de518509de500005be33e00000a'
+    '091047e2170051e371ffff8a110000e3800040e3190110e16fffff1a6cffffea0110d5e5740051e3edffff1a0200d5e53b0050e3032085023e700003'
+    'e8ffffea0200d5e5700050e30300d5053b005003c2ffff1a04c085e22670a0e3e3ffffea0110d5e52670a0e3700051e30210d5056f005103daffff1a'
+    '0310d5e5730051e3d7ffff1a0400d5e53b0050e30520850227700003d2ffffea0200d5e53b0050e3032085023c700003cdffffea0ce09de5111848e2'
+    '40b09de5110871e310609de50030a0e10190a0e39cffff9a00005be32100000a091048e2170051e31e00008a130000e3800040e3190110e11a00000a'
+    '14509de508009de55d0000ea04509de5000055e30600000a08009de5011086e20e0051e10500002a2020a0e30620c0e7030000ea0610a0e108009de5'
+    '000000ea0610a0e10170c0e7016081e20050a0e303005ce15000002a011086e200108de50e0051e117ffff3a4b0000ea18009de5000050e30400000a'
+    '08009de52010a0e300209de50610c0e7010000ea0620a0e108009de57f0058e30500008a016082e20050a0e30e0056e10280c0370260a021330000ea'
+    'a815b0e10c00001a026082e20240a0e10050a0e30e0056e12b00002ac010a0e30020a0e1281381e10410e2e70210a0e31183dfe70180c2e5240000ea'
+    '2818b0e10d00001a036082e20240a0e10050a0e30e0056e11c00002ae010a0e30020a0e1281681e10410e2e72813a0e10240a0e31483dfe70280c2e5'
+    '100000ea046082e20240a0e10050a0e30e0056e10e00002af010a0e30020a0e1281981e10410e2e70810a0e10240a0e31413dfe70310c2e52813a0e1'
+    '1413dfe70210c2e52816a0e11413dfe70110c2e5000000ea0460a0e10a104ce003c081e203005ce1b0ffff3a000000ea08009de5000056e30b00000a'
+    '137000e3013040e20110a0e3807040e30620d3e7092042e2170052e30400008a110217e10200000a016056e2f7ffff1a0060a0e30010a0e30610c0e7'
+    '1cd08de2f08fbde8f0412de90080a0e1700090e50150a0e1000050e30100000a381095e531ff2fe1740098e50040a0e3704088e5000050e30100000a'
     '381095e531ff2fe1780098e5744088e5000050e30100000a381095e531ff2fe17c0098e50040a0e3784088e5000050e30100000a381095e531ff2fe1'
     '800098e57c4088e5000050e30100000a381095e531ff2fe1840098e50040a0e3804088e5000050e30100000a381095e531ff2fe1880098e5844088e5'
     '000050e30100000a381095e531ff2fe18c0098e50060a0e3886088e5000050e30100000a381095e531ff2fe1a47088e20040a0e38c6088e5030000ea'
@@ -11544,40 +11994,12 @@ MIYOOGAMELIST_DETAIL_METADATA_CORE = bytes.fromhex(
     '1c009de500a0a08110c09de50b005ae10700001a09a0a0e1030059e10400002a0a00d5e701908ae2c00000e2800050e3f7ffff0a0b005ae10700009a'
     '0a00d5e7c00000e2800050e30300001a01a04ae20b005ae1f8ffff8a32ffffea0b005ae130ffff9a48009de503005ae14c109de502b180e70b004ae0'
     '020181e7012082e20600002a0a00d5e7200050e30300001a01a08ae20a0053e1f9ffff1a21ffffea50009de50ab0a0e103005ae11dffff2a000052e1'
-    '24ffff3a1affffea1ca09de514709de50b005ae1d1ffff0ad8ffffea1ca09de504209de518309de5c9ffffea1ca09de504209de5c6ffffea1c2090e5'
-    '012092e21c2080e54b00003af0482de9205190e5dc2001e3606390e5023080e0000055e3a07590e501500013000056e3016000131c5180e58650a0e1'
-    'e06790e5000057e35c5380e503700013000056e301600013205a90e59c7580e50661a0e1607c90e5000055e3dc6780e505500013a06e90e5000057e3'
-    'dc2202e3044093e506700013000056e302c080e0442293e507600013000054e384e493e501400013000052e35c7c80e5c47693e50920001300005ee3'
-    '9c6e80e50ae00013000057e3046993e50b7000131c5a80e58441a0e1445b93e5000056e3402283e51120a0e3c07683e50c600013847d93e5000055e3'
-    '1c2080e50d500013c40f93e5000057e3004083e50e70001304409ce5000050e30f00001380e483e5000054e3c00f83e501400013006983e50402a0e1'
-    '405b83e5807d83e500008ce5f048bde8182081e51eff2fe1f04f2de91cd04de2030052e10060a0e34e01002a01e0a0e1020051e34b01003a40b09de5'
-    '0110a0e302c0a0e10050a0e30190a0e300108de50ce08de508008de5000056e30640a0e10140001304508de510608de514408de5040000ea0a0057e3'
-    'c800001a03005ce10450a0e12701002a0c20a0e10170d2e4260057e31400001a18508de5030052e10250a0e14d00002a0000d2e50250a0e1230050e3'
-    '4900001a02508ce20080a0e30ab0a0e3030055e10b00002a0000d5e5200080e3780050e30a00001a03108ce201e0a0e310b0a0e3080000ea02c0a0e1'
-    '00005be36900001aa70000ea0510a0e100e0a0e3010000ea00e0a0e30510a0e1019053e00300a0e132330be300a06ee20890a031013040e3070000ea'
-    '030058e12500008a984b28e001a04ae2019049e2011081e209007ae31f00000a000059e31d00000a0040d1e53b0054e37a00000a306044e22f70e0e3'
-    '0a0056e30e00003a616044e25670e0e3060056e30060a0e30160003306001ee10700001a416044e201702ee2050056e30060a0e301600083066097e1'
-    '3670e0e30700001a044087e00b0054e10400002a00005ee3daffff0a2866a0e1100056e3d9ffff9a0ce09de50030a0e140b09de50190a0e310609de5'
-    '054043e0040054e3190000ba0010d5e5610051e30100d5056d0050033700000a040054e314409de51600000a610051e33a00000a710051e31200001a'
-    '0110d5e52670a0e3750051e31500001a0210d5e56f0051e30310d505740051031000001a0400d5e53b0050e305208502227000030b0000ea2670a0e3'
-    '030054e30a00001a0010d5e514409de52670a0e3670051e31200000a6c0051e30110d505740051032c00000a02c0a0e1010000ea02c0a0e114409de5'
-    '18509de500005be33e00000a091047e2170051e371ffff8a110000e3800040e3190110e16fffff1a6cffffea0110d5e5740051e3edffff1a0200d5e5'
-    '3b0050e3032085023e700003e8ffffea0200d5e5700050e30300d5053b005003c2ffff1a04c085e22670a0e3e3ffffea0110d5e52670a0e3700051e3'
-    '0210d5056f005103daffff1a0310d5e5730051e3d7ffff1a0400d5e53b0050e30520850227700003d2ffffea0200d5e53b0050e3032085023c700003'
-    'cdffffea0ce09de5111848e240b09de5110871e310609de50030a0e10190a0e39cffff9a00005be32100000a091048e2170051e31e00008a130000e3'
-    '800040e3190110e11a00000a14509de508009de55d0000ea04509de5000055e30600000a08009de5011086e20e0051e10500002a2020a0e30620c0e7'
-    '030000ea0610a0e108009de5000000ea0610a0e10170c0e7016081e20050a0e303005ce15000002a011086e200108de50e0051e117ffff3a4b0000ea'
-    '18009de5000050e30400000a08009de52010a0e300209de50610c0e7010000ea0620a0e108009de57f0058e30500008a016082e20050a0e30e0056e1'
-    '0280c0370260a021330000eaa815b0e10c00001a026082e20240a0e10050a0e30e0056e12b00002ac010a0e30020a0e1281381e10410e2e70210a0e3'
-    '1183dfe70180c2e5240000ea2818b0e10d00001a036082e20240a0e10050a0e30e0056e11c00002ae010a0e30020a0e1281681e10410e2e72813a0e1'
-    '0240a0e31483dfe70280c2e5100000ea046082e20240a0e10050a0e30e0056e10e00002af010a0e30020a0e1281981e10410e2e70810a0e10240a0e3'
-    '1413dfe70310c2e52813a0e11413dfe70210c2e52816a0e11413dfe70110c2e5000000ea0460a0e10a104ce003c081e203005ce1b0ffff3a000000ea'
-    '08009de5000056e30b00000a137000e3013040e20110a0e3807040e30620d3e7092042e2170052e30400008a110217e10200000a016056e2f7ffff1a'
-    '0060a0e30010a0e30610c0e71cd08de2f08fbde83c2f67616d654c6973743e003c67616d654c69737400'
+    '24ffff3a1affffea1ca09de514709de50b005ae1d1ffff0ad8ffffea1ca09de504209de518309de5c9ffffea1ca09de504209de5c6ffffea3c2f6761'
+    '6d654c6973743e003c67616d654c69737400'
 )
 MIYOOGAMELIST_DETAIL_META_DRAW_OFF = 0x0000
-MIYOOGAMELIST_DETAIL_META_INPUT_OFF = 0x1c80
-MIYOOGAMELIST_DETAIL_META_CLEANUP_OFF = 0x1d80
+MIYOOGAMELIST_DETAIL_META_INPUT_OFF = 0x095c
+MIYOOGAMELIST_DETAIL_META_CLEANUP_OFF = 0x0a5c
 MIYOOGAMELIST_DETAIL_STATE_SIZE = 49528
 MIYOOGAMELIST_DETAIL_FONT_PTR_OFF = 32
 MIYOOGAMELIST_DETAIL_TITLE_SIZE_OFF = 36
@@ -24820,8 +25242,30 @@ def build_recent_remove_hook_stub(base_va: int, context_va: int,
     return a.finish()
 
 
+def verify_text_menu_add_void_abi(data: bytes | bytearray,
+                                  segs: list[Segment]) -> None:
+    """Pin TextMenu::add at 0x20898 as a void-returning vector append."""
+    expected_words = (
+        0xE92D4800, 0xE28DB004, 0xE24DD008, 0xE50B0008,
+        0xE50B100C, 0xE51B3008, 0xE28330F8, 0xE24B200C,
+        0xE1A01002, 0xE1A00003, 0xEB006CEA, 0xE320F000,
+        0xE24BD004, 0xE8BD8800,
+    )
+    base_va = 0x00020898
+    for i, expected in enumerate(expected_words):
+        va = base_va + i * 4
+        actual = read_word(data, va2off(segs, va, executable=True))
+        if actual != expected:
+            raise ValueError(
+                f'TextMenu::add void ABI changed at {va:#x}: '
+                f'{actual:#010x}, expected {expected:#010x}')
+    if decode_arm_branch_target(expected_words[10], base_va + 10 * 4) != 0x0003BC70:
+        raise AssertionError('internal TextMenu::add provenance constant changed')
+
+
 def verify_recent_remove_hooks(data: bytes | bytearray,
                                segs: list[Segment]) -> dict[str, int]:
+    verify_text_menu_add_void_abi(data, segs)
     expected_words = {
         RECENT_CONTEXT_MENU_HOOK_VA: 0xE3A00010,
         RECENT_CONTEXT_MENU_RETURN_VA: 0xEBFF934F,
@@ -25014,6 +25458,135 @@ def verify_favourite_folder_hooks(data: bytes | bytearray,
     return {'list_vtable_off': list_off, 'action_vtable_off': action_off,
             'game_action_vtable_off': game_action_off}
 
+
+def build_console_refresh_context(imports: dict[str, int],
+                                  custom_action_vptr: int,
+                                  count_cache_invalidate_va: int = 0) -> bytes:
+    words = [
+        0x0001591C, 0x00015904, 0x00039750, 0x00039794,
+        0x00025510, 0x00025620, 0x00020898, 0x00135150,
+        imports[CXX_STRING_C_STR], imports['unlink'], imports['opendir'],
+        imports['readdir'], imports['closedir'], 0x0003A5A8,
+        custom_action_vptr, count_cache_invalidate_va,
+    ]
+    if len(words) * 4 != CONSOLE_REFRESH_CONTEXT_SIZE:
+        raise ValueError('console-refresh context layout mismatch')
+    return struct.pack('<' + 'I' * len(words), *words)
+
+
+def build_console_refresh_menu_hook_stub(base_va: int, context_va: int,
+                                         helper_va: int) -> bytes:
+    """Append per-console Refresh roms below stock Refresh all roms."""
+    a = ArmBuilder(base_va)
+    a.emit(0xE92D503F)             # push {r0-r5,r12,lr}; aligned
+    a.emit(0xE51B0054)             # popup TextMenu*
+    a.emit(0xE51B10D8)             # original event/context object
+    a.ldr_literal(2, context_va)
+    a.branch(helper_va, link=True)
+    a.emit(0xE8BD503F)
+    a.emit(0xE51B3054)             # replay: ldr r3,[fp,#-0x54]
+    a.branch(CONSOLE_REFRESH_MENU_RETURN_VA)
+    return a.finish()
+
+
+def build_console_refresh_bg_hook_stub(base_va: int, context_va: int,
+                                       eligible_va: int) -> bytes:
+    """Use the two-row popup only for a refreshable selected console."""
+    a = ArmBuilder(base_va)
+    a.emit(0xE92D5017)             # push {r0-r2,r4,r12,lr}; aligned
+    a.emit(0xE51B00D8)             # event/context object
+    a.ldr_literal(1, context_va)
+    a.branch(eligible_va, link=True)
+    a.emit(0xE3500000)
+    a.branch('stock_bg1', cond=0x0)  # beq
+    a.ldr_literal(3, CONSOLE_REFRESH_BG2_VA)
+    a.branch('done')
+    a.label('stock_bg1')
+    a.ldr_literal(3, CONSOLE_REFRESH_BG1_VA)
+    a.label('done')
+    a.emit(0xE8BD5017)             # restore caller regs, leave chosen r3
+    a.branch(CONSOLE_REFRESH_BG_RETURN_VA)
+    return a.finish()
+
+
+def verify_console_refresh_hooks(data: bytes | bytearray,
+                                 segs: list[Segment],
+                                 imports: dict[str, int]) -> dict[str, int]:
+    verify_text_menu_add_void_abi(data, segs)
+    expected_words = {
+        0x00030600: 0xE51B30D8,
+        0x00030618: 0xE3530001,
+        0x0003068C: 0xE3A00010,  # stock confirmation action allocation size
+        0x000306B0: 0xE3A00036,  # stock Refresh all roms translation ID 54
+        CONSOLE_REFRESH_MENU_HOOK_VA: 0xE51B3054,
+        CONSOLE_REFRESH_MENU_RETURN_VA: 0xE3A01000,
+        CONSOLE_REFRESH_BG_HOOK_VA: arm_movw(3, CONSOLE_REFRESH_BG1_VA & 0xffff),
+        CONSOLE_REFRESH_BG_HOOK_VA + 4: arm_movt(3, CONSOLE_REFRESH_BG1_VA >> 16),
+        CONSOLE_REFRESH_BG_RETURN_VA: 0xE51B2054,
+        CONSOLE_REFRESH_SELECTED_INDEX_VA: 0xE52DB004,
+        0x000395B8: 0xE593300C,  # TextMenu current row index at +0x0c
+        0x00027A44: 0xE51B3008,
+        0x00027A48: 0xE2833048,  # TextMenu row vector at +0x48
+        0x00023478: 0xE2833078,
+        # Dispatcher proves event+0x0c is the source list and accepts only
+        # source-kind 11 before reaching the Refresh-all popup branch.
+        0x0002FF24: 0xE51B30D8,
+        0x0002FF28: 0xE593200C,
+        0x0002FF54: 0xE353000B,
+        # Dedicated Games-system row constructor: caller sp+12 config -> row+0x44,
+        # caller sp+8 list type -> row+0x4c.
+        0x00025A10: 0xE51B3008,
+        0x00025A14: 0xE59B2010,
+        0x00025A18: 0xE5832044,
+        0x00025A2C: 0xE59B200C,
+        0x00025A30: 0xE583204C,
+        # Standard and expert Games lists pass config/type into that row ctor.
+        0x00037BBC: 0xE58D500C,
+        0x00037BC0: 0xE3A01005,
+        0x00037BC4: 0xE58D1008,
+        0x00037DA0: 0xE58D500C,
+        0x00037DA4: 0xE3A02011,
+        0x00037DA8: 0xE58D2008,
+    }
+    for va, expected in expected_words.items():
+        off = va2off(segs, va, executable=True)
+        actual = read_word(data, off)
+        if actual != expected:
+            raise ValueError(
+                f'console-refresh provenance changed at {va:#x}: '
+                f'{actual:#010x}, expected {expected:#010x}')
+
+    branch_targets = {
+        0x00030684: 0x00039BAC,  # stock Refresh-all callback Action
+        0x000306A8: 0x0003A5A8,  # stock confirmation Action wrapper
+        0x000306E4: 0x00025510,  # TextItem ctor
+        0x000306F0: 0x00020898,  # TextMenu add
+        0x00027A58: 0x0003BC70,  # TextMenu rows push into +0x48 vector
+        0x00037BE0: 0x000258D4,  # standard Games system-row ctor
+        0x00037DC8: 0x000258D4,  # expert Games system-row ctor
+    }
+    for va, expected_target in branch_targets.items():
+        off = va2off(segs, va, executable=True)
+        actual_target = decode_arm_branch_target(read_word(data, off), va)
+        if actual_target != expected_target:
+            raise ValueError(
+                f'console-refresh call provenance changed at {va:#x}: '
+                f'{actual_target!r}, expected {expected_target:#x}')
+
+    cache_fmt_off = va2off(segs, 0x001528EC)
+    if bytes(data[cache_fmt_off:cache_fmt_off + 16]) != b'%s/%s_cache6.db\x00':
+        raise ValueError('console cache6 path format changed')
+
+    vtable_off = va2off(segs, CONSOLE_REFRESH_ACTION_VTABLE_TEMPLATE_VA)
+    expected_vtable = (
+        0x00000000, 0x001543B8, 0x00039F20, 0x00039F5C,
+        0x00019FD8, 0x000397FC, 0x00039828,
+    )
+    if struct.unpack_from('<7I', data, vtable_off) != expected_vtable:
+        raise ValueError('console-refresh source Action vtable layout changed')
+    return {'action_vtable_off': vtable_off}
+
+
 def patch(path: Path, config_path: str, font_config_path: str,
           sort_config_path: str, key_repeat_config_path: str,
           title_scroll_config_path: str, inplace: bool,
@@ -25059,6 +25632,7 @@ def patch(path: Path, config_path: str, font_config_path: str,
           favourite_folder_sort_az_patch: bool = False,
           favourite_folder_return_patch: bool = False,
           recent_remove_from_list_patch: bool = False,
+          console_refresh_roms_patch: bool = False,
           optimize_recent_list_loading_patch: bool = False,
           recent_preview_paths_fix: bool = False,
           search_favourite_status_fix: bool = False,
@@ -25164,6 +25738,7 @@ def patch(path: Path, config_path: str, font_config_path: str,
         favourite_folder_sort_az_patch,
         favourite_folder_return_patch,
         recent_remove_from_list_patch,
+        console_refresh_roms_patch,
         optimize_recent_list_loading_patch,
         recent_preview_paths_fix,
         search_favourite_status_fix,
@@ -25294,6 +25869,8 @@ def patch(path: Path, config_path: str, font_config_path: str,
         wanted_imports.add(CXX_STRING_C_STR)
     if recent_remove_from_list_patch:
         wanted_imports.update({'strcmp', 'malloc', 'free', 'strlen', 'memcpy', CXX_STRING_C_STR})
+    if console_refresh_roms_patch:
+        wanted_imports.update({'unlink', 'opendir', 'readdir', 'closedir', CXX_STRING_C_STR})
     if recent_preview_paths_fix:
         wanted_imports.update({CXX_STRING_C_STR, 'strstr'})
     if search_favourite_status_fix:
@@ -25851,6 +26428,7 @@ def patch(path: Path, config_path: str, font_config_path: str,
                          favourite_lookup_page_cache_patch or
                          favourite_folders_json_patch or
                          recent_remove_from_list_patch or
+                         console_refresh_roms_patch or
                          improve_game_details or
                          miyoogamelist_detail_metadata_patch or
                          rom_list_database_indexes_patch or
@@ -26284,6 +26862,7 @@ def patch(path: Path, config_path: str, font_config_path: str,
     rom_list_count_delete_action_code = b''
     rom_list_count_lookup_va: int | None = None
     rom_list_count_store_va: int | None = None
+    rom_list_count_invalidate_va: int | None = None
     rom_list_count_lookup_site: int | None = None
     rom_list_count_store_site: int | None = None
     rom_list_count_mutation_sites: dict[str, int] = {}
@@ -27772,6 +28351,72 @@ def patch(path: Path, config_path: str, font_config_path: str,
                    arm_movw(3, RECENT_CONTEXT_BG3_VA & 0xffff))
         write_word(d, va2off(segs, RECENT_CONTEXT_BG_MOVT_VA, executable=True),
                    arm_movt(3, RECENT_CONTEXT_BG3_VA >> 16))
+
+
+    if console_refresh_roms_patch:
+        assert rx_extra_cursor_va is not None
+        console_refresh_hooks = verify_console_refresh_hooks(raw, segs, imports)
+        if hashlib.sha256(CONSOLE_REFRESH_CORE).hexdigest() != CONSOLE_REFRESH_CORE_SHA256:
+            raise ValueError('console-refresh core hash mismatch')
+        console_refresh_core = CONSOLE_REFRESH_CORE
+        console_refresh_symbols = CONSOLE_REFRESH_SYMBOL_OFFSETS
+        verify_console_refresh_flat_symbol_offsets(
+            console_refresh_core, console_refresh_symbols)
+
+        console_refresh_core_va = align_up(rx_extra_cursor_va, 4)
+        cursor = console_refresh_core_va + len(console_refresh_core)
+        console_refresh_vtable_va = align_up(cursor, 4)
+        cursor = console_refresh_vtable_va + 7 * 4
+        console_refresh_context_va = align_up(cursor, 4)
+        cursor = console_refresh_context_va + CONSOLE_REFRESH_CONTEXT_SIZE
+
+        def console_refresh_helper(name: str) -> int:
+            return console_refresh_core_va + console_refresh_symbols[name]
+
+        console_refresh_menu_hook_stub_va = align_up(cursor, 4)
+        console_refresh_menu_hook_stub_code = build_console_refresh_menu_hook_stub(
+            console_refresh_menu_hook_stub_va, console_refresh_context_va,
+            console_refresh_helper('console_refresh_add_item'))
+        cursor = console_refresh_menu_hook_stub_va + len(console_refresh_menu_hook_stub_code)
+        console_refresh_bg_hook_stub_va = align_up(cursor, 4)
+        console_refresh_bg_hook_stub_code = build_console_refresh_bg_hook_stub(
+            console_refresh_bg_hook_stub_va, console_refresh_context_va,
+            console_refresh_helper('console_refresh_eligible'))
+        cursor = console_refresh_bg_hook_stub_va + len(console_refresh_bg_hook_stub_code)
+        rx_extra_cursor_va = cursor
+
+        console_refresh_action_words = list(struct.unpack_from(
+            '<7I', raw, int(console_refresh_hooks['action_vtable_off'])))
+        console_refresh_action_words[2] = console_refresh_helper(
+            'console_refresh_regular_dtor')
+        console_refresh_action_words[3] = console_refresh_helper(
+            'console_refresh_deleting_dtor')
+        console_refresh_action_words[4] = console_refresh_helper(
+            'console_refresh_execute')
+        console_refresh_vtable_code = struct.pack(
+            '<7I', *console_refresh_action_words)
+        console_refresh_context_code = build_console_refresh_context(
+            imports, console_refresh_vtable_va + 8)
+        console_refresh_payload_parts = [
+            (console_refresh_core_va, console_refresh_core,
+             'selected-console ROM refresh core'),
+            (console_refresh_vtable_va, console_refresh_vtable_code,
+             'selected-console ROM refresh action vtable'),
+            (console_refresh_context_va, console_refresh_context_code,
+             'selected-console ROM refresh context'),
+            (console_refresh_menu_hook_stub_va, console_refresh_menu_hook_stub_code,
+             'Games console-selector Refresh roms insertion stub'),
+            (console_refresh_bg_hook_stub_va, console_refresh_bg_hook_stub_code,
+             'Games console-selector two-row popup background selector'),
+        ]
+        write_word(
+            d, va2off(segs, CONSOLE_REFRESH_MENU_HOOK_VA, executable=True),
+            branch_word(CONSOLE_REFRESH_MENU_HOOK_VA,
+                        console_refresh_menu_hook_stub_va))
+        write_word(
+            d, va2off(segs, CONSOLE_REFRESH_BG_HOOK_VA, executable=True),
+            branch_word(CONSOLE_REFRESH_BG_HOOK_VA,
+                        console_refresh_bg_hook_stub_va))
 
     if favourite_refresh_sweep_optimization_patch:
         # Allocate this gate only after all helpers that precede the Favourite
@@ -29441,6 +30086,18 @@ def patch(path: Path, config_path: str, font_config_path: str,
         logs.append("          persistence: stock Recent writer; visible list removes only the selected row through TextMenu's stock single-item method")
         logs.append('          layout: stock three-row popup background matches the three visible actions')
         logs.append(f'          hook: {RECENT_CONTEXT_MENU_HOOK_VA:#x}')
+
+
+    if console_refresh_roms_patch:
+        logs.append('[APPLIED] Refresh roms for the selected Games console')
+        logs.append('          menu: translation ID 27 directly below stock Refresh all roms on the Games console selector')
+        logs.append('          action: direct selected-console cache invalidation; no confirmation popup')
+        logs.append("          scope: deletes the selected real console's <system>_cache* family while no ROM list is open")
+        if rom_list_count_cache_patch:
+            logs.append('          RAM count cache: invalidated through the same helper reached by stock Refresh all roms')
+        logs.append('          Search: synthetic Search/non-Roms entries keep the stock one-item popup')
+        logs.append('          rebuild: next normal entry uses MainUI stock missing-cache rebuild behavior')
+        logs.append(f'          hooks: item={CONSOLE_REFRESH_MENU_HOOK_VA:#x}, background={CONSOLE_REFRESH_BG_HOOK_VA:#x}')
 
     if favourite_lookup_page_cache_requested and favourite_folders_json_patch:
         logs.append(
@@ -32017,7 +32674,7 @@ def patch(path: Path, config_path: str, font_config_path: str,
         assert miyoogamelist_detail_hooks is not None
         assert miyoogamelist_detail_state_va is not None
         logs.append('[APPLIED] gamelist.xml metadata in game-detail view')
-        logs.append('          source: immediate ROM directory; gamelist.xml only (stock miyoogamelist.xml database import remains separate)')
+        logs.append('          source: immediate ROM directory first; nested ROMs fall back to /Roms/<system>/gamelist.xml with a system-relative path (stock miyoogamelist.xml database import remains separate)')
         logs.append(
             '          lazy index build: each <=8 MiB XML scan creates <=32,768 '
             'path/offset records and publishes <=256 KiB of exact-sized index data')
@@ -33591,6 +34248,23 @@ def patch(path: Path, config_path: str, font_config_path: str,
         if recent_remove_from_list_patch:
             for part_va, part_blob, part_label in recent_remove_payload_parts:
                 append_payload_chunk(part_va, part_blob, part_label)
+        if console_refresh_roms_patch:
+            # Stock Refresh-all reaches the ROM COUNT-cache invalidator through
+            # the removeAllDBFiles prologue.  The selected-console action bypasses
+            # that function, so wire the same invalidator explicitly when that
+            # optimization is enabled.  Standalone selector builds leave it NULL.
+            if rom_list_count_cache_patch:
+                assert rom_list_count_invalidate_va is not None
+                console_refresh_context_code = build_console_refresh_context(
+                    imports, console_refresh_vtable_va + 8,
+                    rom_list_count_invalidate_va)
+                console_refresh_payload_parts = [
+                    (va, console_refresh_context_code if label ==
+                     'selected-console ROM refresh context' else blob, label)
+                    for va, blob, label in console_refresh_payload_parts
+                ]
+            for part_va, part_blob, part_label in console_refresh_payload_parts:
+                append_payload_chunk(part_va, part_blob, part_label)
         if favourite_refresh_sweep_optimization_patch:
             assert favourite_refresh_gate_va is not None
             assert favourite_refresh_dirty_setter_va is not None
@@ -34411,6 +35085,8 @@ PATCH_OPTIONS: tuple[tuple[str, str], ...] = (
      'Return to the launched row inside a Favourite folder after game exit'),
     ('add_recent_remove_from_list',
      'Add Remove from list below Start in the Recents SELECT menu'),
+    ('add_console_refresh_roms',
+     'Add Refresh roms below Refresh all roms for the selected Games console'),
     ('optimize_recent_list_loading',
      'Use recentlist.json labels directly and bypass cold GetGameName lookup'),
     ('fix_recent_preview_paths',
@@ -34589,6 +35265,13 @@ def validate_patch_selection_models() -> None:
         raise ValueError(
             'Arcade rebuild-name cache survived exclusion of DB display-name bypass')
 
+
+    console_refresh = 'add_console_refresh_roms'
+    selected, _mode, _notes = resolve_patch_selection(
+        {console_refresh}, set(), False)
+    if selected != {console_refresh}:
+        raise ValueError('per-console refresh is no longer standalone')
+
     parser = argparse.ArgumentParser(add_help=False)
     expanded = expand_patch_selectors(
         parser, ['patch-rom-list-rows,patch-rom-list-font-size',
@@ -34755,6 +35438,8 @@ def main() -> None:
                 args.restore_favourite_folder_after_game_exit),
             recent_remove_from_list_patch=(
                 args.add_recent_remove_from_list),
+            console_refresh_roms_patch=(
+                args.add_console_refresh_roms),
             optimize_recent_list_loading_patch=(
                 args.optimize_recent_list_loading),
             recent_preview_paths_fix=(

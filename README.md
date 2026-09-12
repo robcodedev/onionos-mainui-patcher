@@ -3,7 +3,7 @@
 A Python tool that adds support for favorite folders, custom rows in game lists, game metadata,
 optimized performance and other improvements to an original OnionOS `MainUI` executable.
 
-**Version 1.2**
+**Version 1.3**
 
 > [!WARNING]
 > This is an unofficial binary patcher. Keep an untouched copy of the original MainUI executables
@@ -248,7 +248,7 @@ executor, command-buffer handoff, format string, and input-local source before r
 
 ## Available patches
 
-57 registered selectors, all enabled by default. The complete all-patches build is the normal
+58 registered selectors, all enabled by default. The complete all-patches build is the normal
 integrated configuration; partial `--include` / `--exclude` builds are supported primarily for
 diagnosis and experimentation.
 
@@ -300,11 +300,12 @@ diagnosis and experimentation.
 | `patch-key-repeat-settings` | Global SDL key-repeat delay and interval | `.mainUIKeyRepeat` |
 | `fix-game-detail-title-on-open` | Show the correct full title immediately when opening game details | None |
 | `fix-game-detail-title-wrap-width` | Wrap detail titles by measured pixel width using the active font, without forced hyphens or a dropped final character | None |
-| `show-gamelist-metadata-in-game-details` | Show bounded genre, 0-10 rating, and a page-scrollable description using the detail system-name font family/size as its base; synthetic Onion Search rows do not traverse back to source-console XML | Immediate-directory `gamelist.xml` only |
+| `show-gamelist-metadata-in-game-details` | Show bounded genre, 0-10 rating, and a page-scrollable description using the detail system-name font family/size as its base; nested ROMs fall back to the system-root `gamelist.xml`, while synthetic Onion Search rows do not traverse back to source-console XML | Immediate-directory `gamelist.xml`, then `/Roms/<system>/gamelist.xml` for nested ROMs |
 | `skip-folders-in-game-detail-navigation` | Skip folders in detail Up/Down; use game-only list/detail counters; suppress the normal N/N counter on Favorite and ordinary folder rows | None |
 | `fix-sleep-timer-left-right` | Make Sleep Timer Left cycle opposite to Right | None |
 | `patch-main-menu-layout` | Read-only `main-menu.json` visibility, launcher-aware Refresh/Search/Tweaks fallback, restored external Themes/Tweaks rows directly below Display in Settings, ordered SELECT shortcuts, built-in context-label fallback, custom launchers, transient-window state filtering around external handoffs, startup restoration of a hidden Recent list, top-level-only two-line labels, and a session-only four-shoulder reveal | `main-menu.json`, `.showRecents`, `.showExpert`, language ID 407 |
 | `fix-invalid-main-menu-state` | Use Game instead of the `wrongbeef` fallback | None |
+| `add-console-refresh-roms` | Add **Refresh roms** directly below stock **Refresh all roms** on the Games console selector; excludes synthetic Search/non-ROM entries, invalidates the patch-owned ROM-count cache when enabled, and removes only the selected system's `<system>_cache*` family so the next normal entry uses MainUI's stock rebuild path | None |
 | `fix-game-list-context-menu-background` | Use the correct three-row background for the ordinary three-item game-list context menu | None |
 | `patch-context-menu-selection-background` | Use optional active-theme `skin/bg-list-popup-s.png` for PopupWindow selection rows, with the existing list-selection surface as fallback | Theme asset |
 | `fix-dialog-action-theme-style` | Use the theme hint font/color for generic and confirmation-dialog action labels, including Shutdown | None |
@@ -3883,10 +3884,13 @@ remains unchanged and no placeholder text is shown.
 
 ### Data source
 
-The patch checks only `gamelist.xml` in the selected ROM's immediate directory. It does not use
-`miyoogamelist.xml` for display metadata, does not consult the system `config.json` `gamelist` key,
-and does not search parent/deeper directories. Metadata is read directly on demand and is never
-added to `cache6.db`.
+The patch checks `gamelist.xml` in the selected ROM's immediate directory first. For a ROM stored
+below the standard `/Roms/<system>/` root, a missing local XML or a local XML with no matching ROM
+falls back to `/Roms/<system>/gamelist.xml` and matches the ROM path relative to that system root.
+This supports the common Skraper layout where one root `gamelist.xml` contains paths such as
+`./RPG/Chrono Trigger.sfc`, while preserving an immediate-directory XML when it contains the ROM.
+It does not use `miyoogamelist.xml` for display metadata and does not consult the system `config.json`
+`gamelist` key. Metadata is read directly on demand and is never added to `cache6.db`.
 
 This is separate from stock MainUI database generation: stock MainUI continues to use
 `miyoogamelist.xml` normally when rebuilding `cache6.db`.
@@ -3899,14 +3903,12 @@ source="ScreenScraper.fr">`. It requires either `>` or whitespace after `game`, 
 corresponding source, linker script, and reproducible Clang/LLD build recipe. Applying the patch
 uses the verified bytes and does not require a compiler.
 
-The selected ROM's full path is reduced to its filename and matched against XML `<path>` values
-after removing a leading `./` or `/`. The index hash folds ASCII case, and every candidate is
-verified with MainUI's existing case-insensitive comparison before its data is accepted.
-Apostrophes, commas, spaces, accented text, and other UTF-8 bytes are kept as raw path bytes after
-XML-entity decoding.
-
-Because the lookup file is taken from the ROM's immediate directory, a `gamelist.xml` at a system
-root does not provide metadata for ROMs stored in deeper subfolders.
+For an immediate-directory XML, the selected ROM is matched by filename after removing a leading
+`./` or `/` from XML `<path>` values. For the system-root fallback, the key is the ROM path relative
+to `/Roms/<system>/`, so nested entries such as `./RPG/Chrono Trigger.sfc` match directly. The index
+hash folds ASCII case, and every candidate is verified with MainUI's existing case-insensitive
+comparison before its data is accepted. Apostrophes, commas, spaces, accented text, and other UTF-8
+bytes are kept as raw path bytes after XML-entity decoding.
 
 ### Onion Search console limitation
 
@@ -4167,6 +4169,26 @@ Related reports:
   #1](https://github.com/OnionUI/MainUI-issues/issues/1)
 - [Onion v4.0.0-rc discussion: Sleep Timer Left moves
   right](https://www.reddit.com/r/MiyooMini/comments/x3xg6e/onion_v400rc_official_prerelease/)
+
+---
+
+## Per-console Refresh roms
+
+Patch name:
+
+```text
+add-console-refresh-roms
+```
+
+On the Games console-selection screen, SELECT keeps stock **Refresh all roms** and adds
+**Refresh roms** directly below it for a real selected console. The synthetic Search console and
+non-ROM entries retain the stock one-item popup.
+
+The action runs immediately without a confirmation dialog. It invalidates the process-local ROM
+COUNT cache when `cache-rom-list-counts` is active, then removes only files beginning with the
+selected system's `<system>_cache` prefix in that system's ROM directory. It does not manipulate a
+live ROM list, start a custom rebuild worker, or navigate automatically. The next normal entry into
+that console uses MainUI's stock missing-cache rebuild path.
 
 ---
 
@@ -4971,6 +4993,23 @@ These commands preserve image proportions and never enlarge smaller images.
 
 ## Changelog
 
+### 1.3 - 2026-09-12
+
+- **New patch: `add-console-refresh-roms`.** The Games console selector now offers **Refresh roms**
+  directly below **Refresh all roms** for real consoles. It invalidates the patch-owned ROM-count
+  cache when active, removes only the selected console's cache family, excludes the synthetic Search
+  entry, and runs without an extra confirmation popup.
+
+- **Internal menu-action ownership hardening.** `TextMenu::add` is a void-returning stock method.
+  The Recents **Remove from list** and per-console **Refresh roms** helpers now call it without testing
+  an undefined `r0` value, removing a latent cleanup path that could otherwise destroy a TextItem
+  after ownership had already been transferred to the popup menu. The patcher also pins the complete
+  stock `TextMenu::add` body before either helper is emitted.
+
+- **Game Details metadata now supports root-level Skraper `gamelist.xml` files for nested ROMs.**
+  Immediate-directory metadata remains first priority; when it is missing or has no matching entry,
+  nested ROMs fall back to `/Roms/<system>/gamelist.xml` using the ROM path relative to that root.
+
 ### 1.2 - 2026-08-28
 
 - **New patch: `fix-wifi-network-shell-quoting`.** Shell-quote connect-time `wpa_cli` SSID/PSK 
@@ -5093,14 +5132,14 @@ reference hashes remain accepted inputs.
 Validated output,
 
 ```text
-MainUI-283-clean & MainUI-283-expert, bytes: 1,653,820
-sha256sum: af6a118c566598bac0450a22c50e3ac16f46f1ee5f9fa3ac8cb597092354e293
+MainUI-283-clean & MainUI-283-expert, bytes: 1,657,940
+sha256sum: 3994918d557f096734e1a293da067c033114ca28d9663acfb5292fdb28dfe97b
 
-MainUI-285-clean & MainUI-285-expert, bytes: 1,653,820
-sha256sum: 7d8a73d0a18f5a4742e2c4c57f1e2daf189494c4e1e72c141da5118e33e7c597
+MainUI-285-clean & MainUI-285-expert, bytes: 1,657,940
+sha256sum: 9b9901ea344a8b6bf3d4f1bc2157846bbdde6e275e8c36e3e4bd27dd8b190011
 
-MainUI-354-clean & MainUI-354-expert, bytes: 1,653,820
-sha256sum: 801b26fe28e5cf314e2125036f17ca974e16bfa0bceac556cccdb16420cbd20e
+MainUI-354-clean & MainUI-354-expert, bytes: 1,657,940
+sha256sum: e104a0b297bd907862ce038bcad0e8428eec9e8d0d797d333f87dfa479218c25
 ```
 > [!NOTE]
 > The patcher normalizes the clean/expert difference, so both variants produce identical output.
