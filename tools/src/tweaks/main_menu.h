@@ -30,10 +30,10 @@
 #define MAINMENU_CONTEXT_LIST_COUNT (MAINMENU_CONTEXT_COUNT + 1)
 
 static const char *mainmenu_menu_keys[MAINMENU_MENU_COUNT] = {
-    "recents", "favorites", "games", "apps", "settings", "expert"};
+    "recents", "favorites", "games", "expert", "apps", "settings"};
 
 static const char *mainmenu_menu_labels[MAINMENU_MENU_COUNT] = {
-    "Recents", "Favorites", "Games", "Apps", "Settings", "Expert"};
+    "Recents", "Favorites", "Games", "Expert", "Apps", "Settings"};
 
 static const char *mainmenu_context_keys[MAINMENU_CONTEXT_COUNT] = {
     "shutdown", "refresh", "search", "recents", "favorites", "games",
@@ -51,7 +51,7 @@ static void mainmenu_set_default_menu(bool states[MAINMENU_MENU_COUNT])
     states[1] = true; // Favorites
     states[2] = true; // Games
     states[3] = true; // Apps
-    states[4] = true; // Settings
+    states[5] = true; // Settings
 }
 
 static void mainmenu_set_default_context(bool states[MAINMENU_CONTEXT_COUNT])

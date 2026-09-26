@@ -721,7 +721,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MINIMUM_PYTHON = (3, 10)
-PROGRAM_VERSION = "1.3"
+PROGRAM_VERSION = "1.4"
 
 if sys.version_info < MINIMUM_PYTHON:
     raise SystemExit(

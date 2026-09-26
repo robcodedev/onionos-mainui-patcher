@@ -29,6 +29,7 @@
 #define GAMELISTS_SCROLL_PATH GAMELISTS_CONFIG_DIR "/.romListTitleScroll"
 #define GAMELISTS_REPEAT_PATH GAMELISTS_CONFIG_DIR "/.mainUIKeyRepeat"
 #define GAMELISTS_SORT_PATH GAMELISTS_CONFIG_DIR "/.romListCaseSensitiveSort"
+#define GAMELISTS_DYNAMIC_FAV_PATH GAMELISTS_CONFIG_DIR "/.romListDynamicFavPos"
 #define GAMELISTS_ROMWINIDX_PATH "/appconfigs/romwinidx.json"
 #ifndef GAMELISTS_THEME_RESCALE_SCRIPT
 #define GAMELISTS_THEME_RESCALE_SCRIPT "/mnt/SDCARD/.tmp_update/script/rescale_theme_list_icons.sh"
@@ -339,6 +340,11 @@ static int gamelists_value_sort(void)
     return access(GAMELISTS_SORT_PATH, F_OK) == 0;
 }
 
+static int gamelists_value_fixed_favorite_position(void)
+{
+    return access(GAMELISTS_DYNAMIC_FAV_PATH, F_OK) != 0;
+}
+
 static int gamelists_value_default_enabled(const char *key)
 {
     int value = 1;
@@ -547,6 +553,15 @@ static void gamelists_action_rebuild_cache(void *pt)
     config_setNumber(GAMELISTS_PREF_REBUILD_CACHE, enabled);
 }
 
+static void gamelists_action_fixed_favorite_position(void *pt)
+{
+    int enabled = ((ListItem *)pt)->value != 0;
+    if (enabled)
+        gamelists_remove_file(GAMELISTS_DYNAMIC_FAV_PATH);
+    else
+        gamelists_write_text(GAMELISTS_DYNAMIC_FAV_PATH, "");
+}
+
 static void gamelists_on_menu_exit(void)
 {
     if (!gamelists_rescale_pending)
@@ -565,7 +580,7 @@ void menu_gameLists(void *_)
 {
     (void)_;
     if (!_menu_game_lists._created) {
-        _menu_game_lists = list_createWithTitle(9, LIST_SMALL, "Game lists");
+        _menu_game_lists = list_createWithTitle(10, LIST_SMALL, "Game lists");
 
         list_addItemWithInfoNote(
             &_menu_game_lists,
@@ -678,6 +693,16 @@ void menu_gameLists(void *_)
             "Delete ROM cache databases automatically when\n"
             "the Sorting option changes, so MainUI rebuilds\n"
             "them with matching sort indexes. Default: on.");
+
+        list_addItemWithInfoNote(
+            &_menu_game_lists,
+            (ListItem){
+                .label = "Fixed favorite position",
+                .item_type = TOGGLE,
+                .value = gamelists_value_fixed_favorite_position(),
+                .action = gamelists_action_fixed_favorite_position},
+            "Keep the favorite icon in a fixed position.\n"
+            "Turn off to let it follow the title. Default: on.");
     }
 
     menu_stack[++menu_level] = &_menu_game_lists;

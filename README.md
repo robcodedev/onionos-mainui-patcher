@@ -3,11 +3,16 @@
 A Python tool that adds support for favorite folders, custom rows in game lists, game metadata,
 optimized performance and other improvements to an original OnionOS `MainUI` executable.
 
-**Version 1.3**
+**Version 1.4**
 
 > [!WARNING]
 > This is an unofficial binary patcher. Keep an untouched copy of the original MainUI executables
 > and back up `/Roms/favourite.json` before installation.
+
+> [!NOTE]
+> A new open-source version of MainUI is now available at 
+> [github.com/robcodedev/onionos-mainui-opensource](https://github.com/robcodedev/onionos-mainui-opensource) 
+> Future development is recommended to focus on the open-source version rather than this patcher.
 
 ## Quick installation
 
@@ -4992,6 +4997,15 @@ Get-ChildItem "D:\Roms" -Filter *.png -Recurse | ForEach-Object {
 These commands preserve image proportions and never enlarge smaller images.
 
 ## Changelog
+
+### 1.4 - 2026-09-26
+
+- **Updated Tweaks binary:** Added support for toggling fixed favorite icon position in rom lists.
+  Changed default order of main menu items.
+
+- **Documentation:** Added information about the new open-source version of MainUI.
+
+Patched MainUI binary not changed.
 
 ### 1.3 - 2026-09-12
 
